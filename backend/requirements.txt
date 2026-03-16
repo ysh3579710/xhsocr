@@ -1,0 +1,17 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+sqlalchemy==2.0.43
+psycopg[binary]==3.2.9
+alembic==1.16.5
+pydantic-settings==2.10.1
+python-docx==1.2.0
+python-multipart==0.0.20
+rq==2.6.0
+redis==6.4.0
+httpx==0.28.1
+pillow==11.3.0
+paddlepaddle==3.2.0
+paddleocr==3.2.0
+rapidocr_onnxruntime==1.4.4
+rank-bm25==0.2.2
+jieba==0.42.1
