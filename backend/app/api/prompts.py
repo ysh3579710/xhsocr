@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.db.deps import get_db
 from app.models.entities import PromptTemplate, PromptVersion
 from app.schemas.prompts import (
+    LLMModelConfigOut,
+    LLMModelUpdate,
     PromptActivateIn,
     PromptTemplateCreate,
     PromptTemplateOut,
@@ -13,9 +15,30 @@ from app.schemas.prompts import (
     PromptVersionUpdate,
     PromptVersionOut,
 )
+from app.services.llm_settings import get_active_llm_model, list_supported_llm_models, set_active_llm_model
 from app.services.prompt_service import activate_version, create_template, create_version, parse_prompt_type
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
+
+
+@router.get("/llm-model", response_model=LLMModelConfigOut)
+def get_llm_model_config(db: Session = Depends(get_db)) -> LLMModelConfigOut:
+    return LLMModelConfigOut(
+        active_model=get_active_llm_model(db),
+        supported_models=list_supported_llm_models(),
+    )
+
+
+@router.put("/llm-model", response_model=LLMModelConfigOut)
+def update_llm_model_config(payload: LLMModelUpdate, db: Session = Depends(get_db)) -> LLMModelConfigOut:
+    try:
+        active_model = set_active_llm_model(db, payload.active_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return LLMModelConfigOut(
+        active_model=active_model,
+        supported_models=list_supported_llm_models(),
+    )
 
 
 def _template_out(db: Session, tpl: PromptTemplate) -> PromptTemplateOut:

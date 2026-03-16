@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { FixedTagsConfig, PromptTemplate, PromptVersion, Tag } from "../../lib/types";
+import { FixedTagsConfig, LLMModelConfig, PromptTemplate, PromptVersion, Tag } from "../../lib/types";
 
 export default function PromptsPage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -18,6 +18,8 @@ export default function PromptsPage() {
   const [fixedTags, setFixedTags] = useState<string[]>(["", "", "", "", ""]);
   const [floatingTags, setFloatingTags] = useState<Tag[]>([]);
   const [newFloatingTag, setNewFloatingTag] = useState("");
+  const [activeModel, setActiveModel] = useState("openai/gpt-5-mini");
+  const [supportedModels, setSupportedModels] = useState<string[]>(["openai/gpt-5-mini", "openai/gpt-5.3-chat"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,11 +73,36 @@ export default function PromptsPage() {
     setFloatingTags(floating);
   }
 
+  async function loadLLMModel() {
+    const data = await apiFetch<LLMModelConfig>("/prompts/llm-model");
+    setActiveModel(data.active_model);
+    setSupportedModels(data.supported_models || []);
+  }
+
   async function loadAll() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all([loadTemplates(), loadTags()]);
+      await Promise.all([loadTemplates(), loadTags(), loadLLMModel()]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSaveActiveModel(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const data = await apiFetch<LLMModelConfig>("/prompts/llm-model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active_model: activeModel })
+      });
+      setActiveModel(data.active_model);
+      setSupportedModels(data.supported_models || []);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -292,7 +319,23 @@ export default function PromptsPage() {
       {error ? <div className="errorBox">{error}</div> : null}
 
       <section className="card">
+        <h2>模型配置（全局单选）</h2>
+        <form onSubmit={onSaveActiveModel} className="rowHeader">
+          <select value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
+            {supportedModels.map((model) => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+          <button type="submit" disabled={loading}>保存生效模型</button>
+        </form>
+        <p>切换后仅对新提交/新重试任务生效，运行中与已完成任务不变。</p>
+      </section>
+
+      <section className="card">
         <h2>当前生效模板（按类型）</h2>
+        <p>
+          模型：{activeModel}
+        </p>
         <p>
           rewrite：{activeByType.rewrite ? `#${activeByType.rewrite.id} / v${activeByType.rewrite.active_version_no}` : "未配置"}
           {" | "}

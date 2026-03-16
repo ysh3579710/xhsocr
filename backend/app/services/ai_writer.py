@@ -35,8 +35,9 @@ def parse_tags(raw: str, target_count: int) -> list[str]:
 
 
 class LLMClient:
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         self.provider = settings.llm_provider.lower().strip()
+        self.model = (model or settings.openrouter_model).strip()
 
     def chat(self, prompt: str) -> str:
         if self.provider == "mock":
@@ -55,7 +56,7 @@ class LLMClient:
             "Authorization": f"Bearer {settings.openrouter_api_key}",
         }
         payload: dict[str, Any] = {
-            "model": settings.openrouter_model,
+            "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
         }
         max_attempts = max(1, settings.llm_retry_count + 1)
@@ -79,7 +80,7 @@ class LLMClient:
             ) from last_exc
         raise RuntimeError("LLM request failed unexpectedly.")
 
-def _mock(self, prompt: str) -> str:
+    def _mock(self, prompt: str) -> str:
         if "固定标签" in prompt:
             return "#成长 #复盘 #方法 #习惯 #执行"
         if "推荐正文" in prompt:

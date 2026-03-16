@@ -20,6 +20,7 @@ class TaskItemOut(BaseModel):
     batch_id: Optional[int]
     folder_name: str
     book_id: int
+    llm_model: str
     status: str
     error_message: Optional[str]
     retry_count: int

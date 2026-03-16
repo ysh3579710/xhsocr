@@ -38,3 +38,12 @@ class PromptVersionOut(BaseModel):
 
 class PromptActivateIn(BaseModel):
     version_id: int
+
+
+class LLMModelUpdate(BaseModel):
+    active_model: str = Field(min_length=1)
+
+
+class LLMModelConfigOut(BaseModel):
+    active_model: str
+    supported_models: list[str]

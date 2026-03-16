@@ -131,6 +131,7 @@ export default function TaskDetailPage() {
               <div><strong>状态</strong><p>{detail.status}</p></div>
               <div><strong>目录</strong><p>{detail.folder_name}</p></div>
               <div><strong>书稿ID</strong><p>{detail.book_id}</p></div>
+              <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
               <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
             </div>
           </section>

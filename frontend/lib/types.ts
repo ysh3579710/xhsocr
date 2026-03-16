@@ -12,6 +12,7 @@ export type Task = {
   batch_id?: number | null;
   folder_name: string;
   book_id: number;
+  llm_model: string;
   status: string;
   error_message?: string | null;
   retry_count: number;
@@ -76,4 +77,9 @@ export type Tag = {
 
 export type FixedTagsConfig = {
   fixed_tags: string[];
+};
+
+export type LLMModelConfig = {
+  active_model: string;
+  supported_models: string[];
 };

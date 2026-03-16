@@ -27,6 +27,7 @@ from app.services.ai_writer import (
     build_rewrite_prompt,
     render_prompt_template,
 )
+from app.services.llm_settings import get_active_llm_model
 from app.services.book_matcher import match_book_segments
 from app.services.ocr import extract_text_with_timeout, get_ocr_service
 from app.services.prompt_service import get_active_version
@@ -74,6 +75,7 @@ def process_task(task_id: int) -> None:
 
         task.status = TaskStatus.processing
         task.error_message = None
+        task.llm_model = get_active_llm_model(db)
         _log(db, task_id, "queue", "info", "Task started.")
         if task.batch_id:
             _refresh_batch_status(db, task.batch_id)
@@ -166,7 +168,7 @@ def process_task(task_id: int) -> None:
         book = db.get(Book, task.book_id)
         book_title = book.title if book else "未命名书稿"
         matched_segments = matched.get("top_segments", [])
-        llm = LLMClient()
+        llm = LLMClient(model=task.llm_model)
 
         rewrite_default = build_rewrite_prompt(original_note_text, book_title, matched_segments)
         rewrite_tpl = get_active_version(db, PromptType.rewrite)

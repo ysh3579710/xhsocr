@@ -121,6 +121,7 @@ class Task(Base):
     batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("batches.id", ondelete="SET NULL"), nullable=True)
     folder_name: Mapped[str] = mapped_column(String(255), nullable=False)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=False)
+    llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="openai/gpt-5-mini")
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, name="task_status"), nullable=False, default=TaskStatus.waiting)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
