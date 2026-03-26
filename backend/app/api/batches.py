@@ -13,6 +13,7 @@ def _to_out(batch: Batch) -> BatchOut:
     return BatchOut(
         id=batch.id,
         batch_name=batch.batch_name,
+        batch_type=batch.batch_type.value,
         total_count=batch.total_count,
         success_count=batch.success_count,
         failed_count=batch.failed_count,

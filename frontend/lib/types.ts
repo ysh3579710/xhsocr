@@ -9,9 +9,11 @@ export type Book = {
 
 export type Task = {
   id: number;
+  task_type: string;
+  title?: string | null;
   batch_id?: number | null;
   folder_name: string;
-  book_id: number;
+  book_id?: number | null;
   llm_model: string;
   status: string;
   error_message?: string | null;
@@ -36,6 +38,7 @@ export type TaskDetail = Task & {
 export type Batch = {
   id: number;
   batch_name: string;
+  batch_type: string;
   total_count: number;
   success_count: number;
   failed_count: number;

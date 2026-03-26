@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text
@@ -11,6 +11,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class TaskStatus(str, enum.Enum):
     waiting = "waiting"
     processing = "processing"
@@ -18,11 +22,22 @@ class TaskStatus(str, enum.Enum):
     failed = "failed"
 
 
+class TaskType(str, enum.Enum):
+    ocr = "ocr"
+    create = "create"
+
+
+class BatchType(str, enum.Enum):
+    ocr = "ocr"
+    create = "create"
+
+
 class PromptType(str, enum.Enum):
     rewrite = "rewrite"
     intro = "intro"
     tag = "tag"
     fusion = "fusion"
+    create = "create"
 
 
 class Book(Base):
@@ -32,8 +47,8 @@ class Book(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     segments = relationship("BookSegment", back_populates="book", cascade="all, delete-orphan")
 
@@ -46,7 +61,7 @@ class BookSegment(Base):
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
     segment_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     book = relationship("Book", back_populates="segments")
 
@@ -57,8 +72,8 @@ class TagLibrary(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     tag_text: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class AppSetting(Base):
@@ -67,8 +82,8 @@ class AppSetting(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class PromptTemplate(Base):
@@ -77,7 +92,7 @@ class PromptTemplate(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     prompt_type: Mapped[PromptType] = mapped_column(Enum(PromptType, name="prompt_type"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     versions = relationship("PromptVersion", back_populates="template", cascade="all, delete-orphan")
 
@@ -90,7 +105,7 @@ class PromptVersion(Base):
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     template = relationship("PromptTemplate", back_populates="versions")
 
@@ -100,12 +115,13 @@ class Batch(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    batch_type: Mapped[BatchType] = mapped_column(Enum(BatchType, name="batch_type"), nullable=False, default=BatchType.ocr)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, name="task_status"), nullable=False, default=TaskStatus.waiting)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     tasks = relationship("Task", back_populates="batch")
 
@@ -118,15 +134,17 @@ class Task(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    task_type: Mapped[TaskType] = mapped_column(Enum(TaskType, name="task_type"), nullable=False, default=TaskType.ocr)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("batches.id", ondelete="SET NULL"), nullable=True)
     folder_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=False)
+    book_id: Mapped[Optional[int]] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=True)
     llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="openai/gpt-5-mini")
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, name="task_status"), nullable=False, default=TaskStatus.waiting)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     batch = relationship("Batch", back_populates="tasks")
     images = relationship("TaskImage", back_populates="task", cascade="all, delete-orphan")
@@ -143,7 +161,7 @@ class TaskImage(Base):
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     sort_index: Mapped[int] = mapped_column(Integer, nullable=False)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     task = relationship("Task", back_populates="images")
 
@@ -159,8 +177,8 @@ class TaskResult(Base):
     fixed_tags_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     random_tags_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     full_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     task = relationship("Task", back_populates="result")
 
@@ -174,6 +192,6 @@ class TaskLog(Base):
     stage: Mapped[str] = mapped_column(String(64), nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     task = relationship("Task", back_populates="logs")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import random
 import time
@@ -20,6 +20,7 @@ from app.models.entities import (
     TaskLog,
     TaskResult,
     TaskStatus,
+    TaskType,
 )
 from app.services.ai_writer import (
     LLMClient,
@@ -40,7 +41,7 @@ def _log(db, task_id: int, stage: str, level: str, message: str) -> None:
 
 def _log_and_commit(db, task: Task, stage: str, level: str, message: str) -> None:
     _log(db, task.id, stage, level, message)
-    task.updated_at = datetime.utcnow()
+    task.updated_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -66,6 +67,23 @@ def _refresh_batch_status(db, batch_id: int) -> None:
         batch.status = TaskStatus.waiting
 
 
+def _prepare_create_book_context(db, book_id: int | None, limit: int = 6) -> tuple[str, str]:
+    if not book_id:
+        return "未绑定书稿", ""
+    book = db.get(Book, book_id)
+    if not book:
+        return "未绑定书稿", ""
+    segments = (
+        db.execute(
+            select(BookSegment).where(BookSegment.book_id == book_id).order_by(BookSegment.segment_index.asc()).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    text = "\n\n".join([s.content for s in segments])
+    return book.title, text
+
+
 def process_task(task_id: int) -> None:
     db = SessionLocal()
     try:
@@ -80,6 +98,58 @@ def process_task(task_id: int) -> None:
         if task.batch_id:
             _refresh_batch_status(db, task.batch_id)
         db.commit()
+
+        if task.task_type == TaskType.create:
+            if not task.title or not task.title.strip():
+                raise RuntimeError("Create task title is required.")
+
+            result = db.get(TaskResult, task_id)
+            if not result:
+                result = TaskResult(task_id=task_id)
+                db.add(result)
+
+            book_title, matched_segments_text = _prepare_create_book_context(db, task.book_id)
+            llm = LLMClient(model=task.llm_model)
+
+            create_tpl = get_active_version(db, PromptType.create)
+            if create_tpl:
+                create_prompt = render_prompt_template(
+                    create_tpl.content,
+                    {
+                        "title": task.title,
+                        "book_title": book_title,
+                        "matched_segments": matched_segments_text,
+                        "original_note": "",
+                        "rewritten_note": "",
+                    },
+                )
+            else:
+                create_prompt = (
+                    "请基于标题创作一篇小红书原创正文。\n"
+                    f"标题：{task.title}\n"
+                    f"参考书稿：{book_title}\n"
+                    f"可用书稿片段：\n{matched_segments_text}\n\n"
+                    "请直接输出原创正文。"
+                )
+
+            created_text = llm.chat(create_prompt).strip()
+            result.rewritten_note = created_text
+            result.full_output = created_text
+            result.original_note_text = None
+            result.matched_book_segments = None
+            result.intro_text = None
+            result.fixed_tags_text = None
+            result.random_tags_text = None
+
+            _log_and_commit(db, task, "create", "info", "Create generation finished.")
+            task.status = TaskStatus.success
+            if task.batch_id:
+                _refresh_batch_status(db, task.batch_id)
+            db.commit()
+            return
+
+        if task.book_id is None:
+            raise RuntimeError("OCR task book_id is required.")
 
         images = (
             db.execute(

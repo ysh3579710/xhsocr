@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const menus = [
   { href: "/books", label: "书库管理" },
   { href: "/tasks", label: "任务列表" },
+  { href: "/create-tasks", label: "原创创作" },
   { href: "/batches", label: "批次页" },
   { href: "/prompts", label: "Prompt 配置中心" }
 ];

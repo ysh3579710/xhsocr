@@ -178,6 +178,10 @@ button:hover {
   margin-bottom: 8px;
 }
 
+.trow7 {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
 .thead {
   font-weight: 700;
   background: #fff8ef;
@@ -270,6 +274,80 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
+}
+
+.createModeSwitch {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.modeBtn {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.modeBtn.active {
+  background: linear-gradient(120deg, var(--accent), #d65b38);
+  color: #fff;
+  border-color: transparent;
+}
+
+.pasteZone {
+  border: 1px dashed var(--accent-2);
+  background: #f6fffc;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 64px;
+  color: var(--muted);
+  outline: none;
+}
+
+.pasteZone:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(180, 72, 45, 0.16);
+}
+
+.pasteGroupList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.groupChip {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.groupChip.active {
+  border-color: var(--accent-2);
+  background: #eff9f7;
+}
+
+.pasteImageList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pasteImageRow {
+  display: grid;
+  grid-template-columns: 40px 80px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.pasteImageRow img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
 }
 
 @media (max-width: 1024px) {

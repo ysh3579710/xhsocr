@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class BatchOut(BaseModel):
     id: int
     batch_name: str
+    batch_type: str
     total_count: int
     success_count: int
     failed_count: int

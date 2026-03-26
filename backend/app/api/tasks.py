@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db.deps import get_db
-from app.models.entities import Batch, Book, Task, TaskImage, TaskLog, TaskStatus
-from app.schemas.tasks import TaskBindingIn, TaskCreateOut, TaskDetailOut, TaskImageOut, TaskItemOut
+from app.models.entities import Batch, BatchType, Book, Task, TaskImage, TaskLog, TaskStatus, TaskType
+from app.schemas.tasks import CreateTaskBatchIn, TaskBindingIn, TaskCreateOut, TaskDetailOut, TaskImageOut, TaskItemOut
 from app.services.task_queue import enqueue_task
 from app.utils.sort import natural_sort_key
 
@@ -26,6 +26,8 @@ IGNORED_FILE_NAMES = {"Thumbs.db", "desktop.ini"}
 def _task_to_item(task: Task) -> TaskItemOut:
     return TaskItemOut(
         id=task.id,
+        task_type=task.task_type.value,
+        title=task.title,
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,
@@ -152,6 +154,7 @@ def create_tasks(
     if len(binding_map) > 1:
         batch = Batch(
             batch_name=(batch_name or "batch").strip() or "batch",
+            batch_type=BatchType.ocr,
             total_count=len(binding_map),
             success_count=0,
             failed_count=0,
@@ -163,6 +166,7 @@ def create_tasks(
     created_tasks: list[Task] = []
     for folder_name, book_id in binding_map.items():
         task = Task(
+            task_type=TaskType.ocr,
             batch_id=batch.id if batch else None,
             folder_name=folder_name,
             book_id=book_id,
@@ -224,9 +228,74 @@ def create_tasks(
     )
 
 
+@router.post("/create-batch", response_model=TaskCreateOut, status_code=status.HTTP_201_CREATED)
+def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)) -> TaskCreateOut:
+    titles = [t.strip() for t in payload.titles if t and t.strip()]
+    if not titles:
+        raise HTTPException(status_code=400, detail="At least one valid title is required.")
+
+    if payload.book_id is not None:
+        book = db.get(Book, payload.book_id)
+        if not book:
+            raise HTTPException(status_code=400, detail="book_id not found.")
+
+    batch: Optional[Batch] = None
+    if len(titles) > 1:
+        batch = Batch(
+            batch_name=(payload.batch_name or "batch").strip() or "batch",
+            batch_type=BatchType.create,
+            total_count=len(titles),
+            success_count=0,
+            failed_count=0,
+            status=TaskStatus.waiting,
+        )
+        db.add(batch)
+        db.flush()
+
+    created_tasks: list[Task] = []
+    for title in titles:
+        task = Task(
+            task_type=TaskType.create,
+            title=title,
+            folder_name=title,
+            book_id=payload.book_id,
+            batch_id=batch.id if batch else None,
+            status=TaskStatus.waiting,
+        )
+        db.add(task)
+        created_tasks.append(task)
+
+    db.commit()
+    for task in created_tasks:
+        db.refresh(task)
+
+    if payload.auto_enqueue:
+        for task in created_tasks:
+            try:
+                enqueue_task(task.id)
+            except Exception as exc:
+                db.add(
+                    TaskLog(
+                        task_id=task.id,
+                        stage="queue",
+                        level="error",
+                        message=f"Enqueue failed: {exc}",
+                    )
+                )
+        db.commit()
+
+    return TaskCreateOut(
+        batch_id=batch.id if batch else None,
+        task_ids=[task.id for task in created_tasks],
+        total_count=len(created_tasks),
+    )
+
+
 @router.get("", response_model=list[TaskItemOut])
-def list_tasks(db: Session = Depends(get_db)) -> list[TaskItemOut]:
+def list_tasks(task_type: str = Query(default="ocr"), db: Session = Depends(get_db)) -> list[TaskItemOut]:
     stmt = select(Task).order_by(Task.created_at.desc())
+    if task_type in {"ocr", "create"}:
+        stmt = stmt.where(Task.task_type == TaskType(task_type))
     tasks = db.execute(stmt).scalars().all()
     return [_task_to_item(t) for t in tasks]
 
@@ -240,6 +309,8 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
 
     return TaskDetailOut(
         id=task.id,
+        task_type=task.task_type.value,
+        title=task.title,
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,

@@ -10,6 +10,7 @@ LLM_MODEL_KEY = "active_llm_model"
 SUPPORTED_LLM_MODELS = [
     "openai/gpt-5-mini",
     "openai/gpt-5.3-chat",
+    "claude-sonnet-4.6",
 ]
 
 

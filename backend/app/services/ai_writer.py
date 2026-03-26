@@ -59,6 +59,8 @@ class LLMClient:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
         }
+        if self.model == "claude-sonnet-4.6":
+            payload["reasoning"] = {"enabled": True}
         max_attempts = max(1, settings.llm_retry_count + 1)
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):

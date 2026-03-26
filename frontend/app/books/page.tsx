@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { formatBeijingDateTime } from "../../lib/time";
 import { Book } from "../../lib/types";
 
 export default function BooksPage() {
@@ -98,7 +99,7 @@ export default function BooksPage() {
               <span>{b.id}</span>
               <span>{b.title}</span>
               <span>{b.segment_count}</span>
-              <span>{new Date(b.created_at).toLocaleString()}</span>
+              <span>{formatBeijingDateTime(b.created_at)}</span>
               <span>
                 <button onClick={() => void onDelete(b.id)} disabled={loading}>删除</button>
               </span>

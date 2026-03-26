@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class PromptTemplateCreate(BaseModel):
-    prompt_type: str = Field(pattern="^(rewrite|intro|tag|fusion)$")
+    prompt_type: str = Field(pattern="^(rewrite|intro|tag|fusion|create)$")
     name: str = Field(min_length=1, max_length=128)
 
 

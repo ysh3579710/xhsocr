@@ -18,7 +18,7 @@ export default function BatchesPage() {
     try {
       const [batchData, taskData] = await Promise.all([
         apiFetch<Batch[]>("/batch"),
-        apiFetch<Task[]>("/tasks")
+        apiFetch<Task[]>("/tasks?task_type=all")
       ]);
       setBatches(batchData);
       setTasks(taskData);
@@ -55,9 +55,10 @@ export default function BatchesPage() {
       <section className="card">
         <h2>批次列表</h2>
         <div className="table">
-          <div className="thead">
+          <div className="thead trow7">
             <span>ID</span>
             <span>批次名</span>
+            <span>类型</span>
             <span>状态</span>
             <span>总数</span>
             <span>成功</span>
@@ -66,11 +67,12 @@ export default function BatchesPage() {
           {batches.map((b) => (
             <div
               key={b.id}
-              className={`trow clickable ${selectedBatchId === b.id ? "active" : ""}`}
+              className={`trow trow7 clickable ${selectedBatchId === b.id ? "active" : ""}`}
               onClick={() => setSelectedBatchId(b.id)}
             >
               <span>{b.id}</span>
               <span>{b.batch_name}</span>
+              <span>{b.batch_type}</span>
               <span>{b.status}</span>
               <span>{b.total_count}</span>
               <span>{b.success_count}</span>

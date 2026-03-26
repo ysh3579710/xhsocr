@@ -19,7 +19,11 @@ export default function PromptsPage() {
   const [floatingTags, setFloatingTags] = useState<Tag[]>([]);
   const [newFloatingTag, setNewFloatingTag] = useState("");
   const [activeModel, setActiveModel] = useState("openai/gpt-5-mini");
-  const [supportedModels, setSupportedModels] = useState<string[]>(["openai/gpt-5-mini", "openai/gpt-5.3-chat"]);
+  const [supportedModels, setSupportedModels] = useState<string[]>([
+    "openai/gpt-5-mini",
+    "openai/gpt-5.3-chat",
+    "claude-sonnet-4.6"
+  ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,7 +36,8 @@ export default function PromptsPage() {
     const map: Record<string, PromptTemplate | null> = {
       rewrite: null,
       intro: null,
-      tag: null
+      tag: null,
+      create: null
     };
     for (const t of templates) {
       if (!map[t.prompt_type] && t.active_version_no) {
@@ -342,6 +347,8 @@ export default function PromptsPage() {
           intro：{activeByType.intro ? `#${activeByType.intro.id} / v${activeByType.intro.active_version_no}` : "未配置"}
           {" | "}
           tag：{activeByType.tag ? `#${activeByType.tag.id} / v${activeByType.tag.active_version_no}` : "未配置"}
+          {" | "}
+          create：{activeByType.create ? `#${activeByType.create.id} / v${activeByType.create.active_version_no}` : "未配置"}
         </p>
       </section>
 
@@ -353,6 +360,7 @@ export default function PromptsPage() {
             <option value="intro">intro</option>
             <option value="tag">tag</option>
             <option value="fusion">fusion</option>
+            <option value="create">create</option>
           </select>
           <input value={newTplName} onChange={(e) => setNewTplName(e.target.value)} placeholder="模板名" />
           <button type="submit" disabled={loading}>创建模板</button>
