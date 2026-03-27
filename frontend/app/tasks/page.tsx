@@ -60,9 +60,10 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
+  const [modalToast, setModalToast] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  const [createMode, setCreateMode] = useState<CreateMode>("folder");
+  const [createMode, setCreateMode] = useState<CreateMode>("paste");
 
   const [taskFiles, setTaskFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("batch");
@@ -109,6 +110,11 @@ export default function TasksPage() {
     () => pasteGroups.filter((g) => g.images.length > 0),
     [pasteGroups]
   );
+
+  function showModalToast(message: string) {
+    setModalToast(message);
+    window.setTimeout(() => setModalToast(""), 1800);
+  }
 
   async function loadData() {
     setLoading(true);
@@ -168,7 +174,7 @@ export default function TasksPage() {
     setTaskFiles([]);
     setFolderBindings({});
     setBatchName("batch");
-    setCreateMode("folder");
+    setCreateMode("paste");
     const first = createEmptyPasteGroup(1);
     setPasteGroups([first]);
     setActiveGroupId(first.id);
@@ -278,6 +284,10 @@ export default function TasksPage() {
     if (!activePasteGroup) return;
     if (activePasteGroup.images.length === 0) {
       setError("当前组还没有图片，请先粘贴后再完成。");
+      return;
+    }
+    if (!activePasteGroup.bookId) {
+      showModalToast("需要绑定书稿才能创建下一组。");
       return;
     }
     onCreateNextGroup();
@@ -494,6 +504,7 @@ export default function TasksPage() {
       {isCreateOpen ? (
         <div className="modalMask" onClick={closeCreateModal}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            {modalToast ? <div className="modalToast">{modalToast}</div> : null}
             <div className="rowHeader">
               <h2>创建任务</h2>
               <button onClick={closeCreateModal}>关闭</button>
@@ -502,17 +513,17 @@ export default function TasksPage() {
             <div className="createModeSwitch">
               <button
                 type="button"
-                className={createMode === "folder" ? "modeBtn active" : "modeBtn"}
-                onClick={() => switchCreateMode("folder")}
-              >
-                目录上传
-              </button>
-              <button
-                type="button"
                 className={createMode === "paste" ? "modeBtn active" : "modeBtn"}
                 onClick={() => switchCreateMode("paste")}
               >
                 粘贴上传
+              </button>
+              <button
+                type="button"
+                className={createMode === "folder" ? "modeBtn active" : "modeBtn"}
+                onClick={() => switchCreateMode("folder")}
+              >
+                目录上传
               </button>
             </div>
 
@@ -621,11 +632,11 @@ export default function TasksPage() {
                         <div className="pasteImageList">
                           {activePasteGroup.images
                             .slice()
-                            .sort((a, b) => a.pastedAt - b.pastedAt)
-                            .map((img, idx) => (
+                            .sort((a, b) => b.pastedAt - a.pastedAt)
+                            .map((img, idx, arr) => (
                               <div key={img.id} className="pasteImageRow">
-                                <span>{String(idx + 1).padStart(2, "0")}.</span>
-                                <img src={img.previewUrl} alt={`paste-${idx + 1}`} />
+                                <span>{String(arr.length - idx).padStart(2, "0")}.</span>
+                                <img src={img.previewUrl} alt={`paste-${arr.length - idx}`} />
                                 <span>{Math.round(img.file.size / 1024)} KB</span>
                                 <button type="button" onClick={() => removePastedImage(activePasteGroup.id, img.id)}>删除</button>
                               </div>

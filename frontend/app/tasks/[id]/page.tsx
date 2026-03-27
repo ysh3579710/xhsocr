@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../../lib/api";
-import { TaskDetail } from "../../../lib/types";
+import { Task, TaskDetail } from "../../../lib/types";
+import { formatBeijingDateTime } from "../../../lib/time";
 
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
@@ -14,14 +15,46 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
+  const [toast, setToast] = useState("");
+  const [taskIds, setTaskIds] = useState<number[]>([]);
+
+  function showToast(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 1800);
+  }
+
+  async function copyText(text: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = text;
+        el.style.position = "fixed";
+        el.style.opacity = "0";
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+      showToast("复制成功");
+    } catch {
+      showToast("复制失败");
+    }
+  }
 
   async function loadDetail() {
     if (!taskId) return;
     setLoading(true);
     setError("");
     try {
-      const data = await apiFetch<TaskDetail>(`/tasks/${taskId}`);
+      const [data, list] = await Promise.all([
+        apiFetch<TaskDetail>(`/tasks/${taskId}`),
+        apiFetch<Task[]>("/tasks")
+      ]);
       setDetail(data);
+      setTaskIds(list.map((t) => t.id));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -32,13 +65,21 @@ export default function TaskDetailPage() {
   async function loadDetailSilently() {
     if (!taskId) return;
     try {
-      const data = await apiFetch<TaskDetail>(`/tasks/${taskId}`);
+      const [data, list] = await Promise.all([
+        apiFetch<TaskDetail>(`/tasks/${taskId}`),
+        apiFetch<Task[]>("/tasks")
+      ]);
       setDetail(data);
+      setTaskIds(list.map((t) => t.id));
       setAutoRefreshError("");
     } catch (e) {
       setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
     }
   }
+
+  const currentIndex = useMemo(() => taskIds.findIndex((id) => id === taskId), [taskIds, taskId]);
+  const prevTaskId = currentIndex > 0 ? taskIds[currentIndex - 1] : null;
+  const nextTaskId = currentIndex >= 0 && currentIndex < taskIds.length - 1 ? taskIds[currentIndex + 1] : null;
 
   useEffect(() => {
     void loadDetail();
@@ -113,6 +154,8 @@ export default function TaskDetailPage() {
         </div>
         <div className="actions">
           <Link className="linkBtn" href="/tasks">返回任务列表</Link>
+          <button onClick={() => router.push(`/tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
+          <button onClick={() => router.push(`/tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
           <button onClick={() => void onRetry()} disabled={loading}>重试</button>
           <button onClick={() => void onDelete()} disabled={loading || detail?.status === "processing"}>删除任务</button>
@@ -121,6 +164,7 @@ export default function TaskDetailPage() {
 
       {error ? <div className="errorBox">{error}</div> : null}
       {autoRefreshError ? <div className="errorBox">{autoRefreshError}</div> : null}
+      {toast ? <div className="toast">{toast}</div> : null}
       {!detail ? <section className="card">加载中...</section> : null}
 
       {detail ? (
@@ -132,6 +176,7 @@ export default function TaskDetailPage() {
               <div><strong>目录</strong><p>{detail.folder_name}</p></div>
               <div><strong>书稿ID</strong><p>{detail.book_id}</p></div>
               <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
+              <div><strong>创建时间（北京时间）</strong><p>{formatBeijingDateTime(detail.created_at)}</p></div>
               <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
             </div>
           </section>
@@ -165,7 +210,7 @@ export default function TaskDetailPage() {
               <input readOnly value={detail.random_tags_text || ""} />
               <label>最终汇总文本</label>
               <textarea readOnly rows={8} value={detail.full_output || ""} />
-              <button onClick={() => navigator.clipboard.writeText(detail.full_output || "")}>复制最终文本</button>
+              <button onClick={() => void copyText(detail.full_output || "")}>复制最终文本</button>
             </div>
           </section>
         </>

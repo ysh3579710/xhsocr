@@ -108,6 +108,19 @@ body {
   margin-bottom: 12px;
 }
 
+.toast {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 1200;
+  border: 1px solid #9dd8bb;
+  background: #edfdf3;
+  color: #1d7d4f;
+  border-radius: 10px;
+  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -160,6 +173,13 @@ button {
 
 button:hover {
   filter: brightness(1.05);
+}
+
+button:disabled {
+  background: #c9c2b8;
+  color: #f7f4ef;
+  cursor: not-allowed;
+  filter: none;
 }
 
 .table {
@@ -267,6 +287,7 @@ button:hover {
 }
 
 .modalCard {
+  position: relative;
   width: min(760px, calc(100vw - 24px));
   max-height: calc(100vh - 80px);
   overflow: auto;
@@ -274,6 +295,21 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
+}
+
+.modalToast {
+  position: sticky;
+  top: 10px;
+  margin: 0 auto 10px;
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  border: 1px solid #e7bf89;
+  background: #fff6eb;
+  color: #8e4f10;
+  border-radius: 10px;
+  padding: 8px 12px;
+  z-index: 3;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 
 .createModeSwitch {

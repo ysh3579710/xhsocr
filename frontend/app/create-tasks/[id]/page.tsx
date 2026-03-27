@@ -15,6 +15,33 @@ export default function CreateTaskDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
+  const [toast, setToast] = useState("");
+
+  function showToast(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 1800);
+  }
+
+  async function copyText(text: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = text;
+        el.style.position = "fixed";
+        el.style.opacity = "0";
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+      showToast("复制成功");
+    } catch {
+      showToast("复制失败");
+    }
+  }
 
   async function loadDetail() {
     if (!taskId) return;
@@ -123,6 +150,7 @@ export default function CreateTaskDetailPage() {
 
       {error ? <div className="errorBox">{error}</div> : null}
       {autoRefreshError ? <div className="errorBox">{autoRefreshError}</div> : null}
+      {toast ? <div className="toast">{toast}</div> : null}
       {!detail ? <section className="card">加载中...</section> : null}
 
       {detail ? (
@@ -142,7 +170,7 @@ export default function CreateTaskDetailPage() {
           <section className="card">
             <h2>AI 原创正文</h2>
             <textarea readOnly rows={14} value={detail.rewritten_note || detail.full_output || ""} />
-            <button onClick={() => navigator.clipboard.writeText(detail.rewritten_note || detail.full_output || "")}>
+            <button onClick={() => void copyText(detail.rewritten_note || detail.full_output || "")}>
               复制正文
             </button>
           </section>
