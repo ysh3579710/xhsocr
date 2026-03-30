@@ -1,23 +1,36 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { FixedTagsConfig, LLMModelConfig, PromptTemplate, PromptVersion, Tag } from "../../lib/types";
+import { LLMModelConfig, PromptItem } from "../../lib/types";
+
+type PromptFormState = {
+  track: string;
+  name: string;
+  content: string;
+  enabled: boolean;
+};
+
+const EMPTY_FORM: PromptFormState = {
+  track: "",
+  name: "",
+  content: "",
+  enabled: true
+};
 
 export default function PromptsPage() {
-  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-  const [versions, setVersions] = useState<PromptVersion[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-  const [newTplType, setNewTplType] = useState("rewrite");
-  const [newTplName, setNewTplName] = useState("");
-  const [newVerContent, setNewVerContent] = useState("");
-  const [newVerActivate, setNewVerActivate] = useState(true);
-  const [editingVersionId, setEditingVersionId] = useState<number | null>(null);
-  const [editingContent, setEditingContent] = useState("");
-  const [fixedTags, setFixedTags] = useState<string[]>(["", "", "", "", ""]);
-  const [floatingTags, setFloatingTags] = useState<Tag[]>([]);
-  const [newFloatingTag, setNewFloatingTag] = useState("");
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [tracks, setTracks] = useState<string[]>([]);
+  const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<PromptFormState>(EMPTY_FORM);
+  const [createForm, setCreateForm] = useState<PromptFormState>(EMPTY_FORM);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  const [filterTrack, setFilterTrack] = useState("");
+  const [filterEnabled, setFilterEnabled] = useState("all");
+  const [filterKeyword, setFilterKeyword] = useState("");
+
   const [activeModel, setActiveModel] = useState("openai/gpt-5-mini");
   const [supportedModels, setSupportedModels] = useState<string[]>([
     "openai/gpt-5-mini",
@@ -27,55 +40,28 @@ export default function PromptsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const selectedVersion = useMemo(
-    () => versions.find((v) => v.id === selectedVersionId) || null,
-    [versions, selectedVersionId]
-  );
+  function buildPromptListPath() {
+    const qs = new URLSearchParams();
+    if (filterTrack) qs.set("track", filterTrack);
+    if (filterEnabled === "enabled") qs.set("enabled", "true");
+    if (filterEnabled === "disabled") qs.set("enabled", "false");
+    if (filterKeyword.trim()) qs.set("q", filterKeyword.trim());
+    const suffix = qs.toString();
+    return suffix ? `/prompts?${suffix}` : "/prompts";
+  }
 
-  const activeByType = useMemo(() => {
-    const map: Record<string, PromptTemplate | null> = {
-      rewrite: null,
-      intro: null,
-      tag: null,
-      create: null
-    };
-    for (const t of templates) {
-      if (!map[t.prompt_type] && t.active_version_no) {
-        map[t.prompt_type] = t;
-      }
-    }
-    return map;
-  }, [templates]);
-
-  async function loadTemplates() {
-    const data = await apiFetch<PromptTemplate[]>("/prompts/templates");
-    setTemplates(data);
+  async function loadPrompts() {
+    const data = await apiFetch<PromptItem[]>(buildPromptListPath());
+    setPrompts(data);
     if (data.length === 0) {
-      setSelectedTemplateId(null);
+      setEditForm(EMPTY_FORM);
       return;
-    }
-    if (!selectedTemplateId || !data.some((t) => t.id === selectedTemplateId)) {
-      setSelectedTemplateId(data[0].id);
     }
   }
 
-  async function loadVersions(templateId: number) {
-    const data = await apiFetch<PromptVersion[]>(`/prompts/templates/${templateId}/versions`);
-    setVersions(data);
-    if (data.length === 0) {
-      setSelectedVersionId(null);
-      return;
-    }
-    setSelectedVersionId(data[0].id);
-  }
-
-  async function loadTags() {
-    const [fixed, floating] = await Promise.all([
-      apiFetch<FixedTagsConfig>("/tags/fixed"),
-      apiFetch<Tag[]>("/tags")
-    ]);
-    setFixedTags(fixed.fixed_tags);
-    setFloatingTags(floating);
+  async function loadTracks() {
+    const data = await apiFetch<string[]>("/prompts/tracks");
+    setTracks(data);
   }
 
   async function loadLLMModel() {
@@ -88,13 +74,21 @@ export default function PromptsPage() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all([loadTemplates(), loadTags(), loadLLMModel()]);
+      await Promise.all([loadPrompts(), loadTracks(), loadLLMModel()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void loadAll();
+  }, []);
+
+  useEffect(() => {
+    void loadPrompts();
+  }, [filterTrack, filterEnabled, filterKeyword]);
 
   async function onSaveActiveModel(e: FormEvent) {
     e.preventDefault();
@@ -115,163 +109,38 @@ export default function PromptsPage() {
     }
   }
 
-  useEffect(() => {
-    void loadAll();
-  }, []);
+  function openCreateModal() {
+    setCreateForm(EMPTY_FORM);
+    setError("");
+    setIsCreateOpen(true);
+  }
 
-  useEffect(() => {
-    if (!selectedTemplateId) {
-      setVersions([]);
-      setSelectedVersionId(null);
-      return;
-    }
-    void loadVersions(selectedTemplateId);
-  }, [selectedTemplateId]);
+  function closeCreateModal() {
+    setIsCreateOpen(false);
+  }
 
-  async function onCreateTemplate(e: FormEvent) {
+  async function onCreatePrompt(e: FormEvent) {
     e.preventDefault();
-    if (!newTplName.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch("/prompts/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt_type: newTplType, name: newTplName.trim() })
-      });
-      setNewTplName("");
-      await loadTemplates();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onDeleteTemplate(templateId: number) {
-    const ok = window.confirm(`确认删除模板 #${templateId} 吗？模板下所有版本会一起删除。`);
-    if (!ok) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch(`/prompts/templates/${templateId}`, { method: "DELETE" });
-      await loadTemplates();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onCreateVersion(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedTemplateId || !newVerContent.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch(`/prompts/templates/${selectedTemplateId}/versions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: newVerContent.trim(), activate: newVerActivate })
-      });
-      setNewVerContent("");
-      await loadTemplates();
-      await loadVersions(selectedTemplateId);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onActivateVersion(versionId: number) {
-    if (!selectedTemplateId) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch(`/prompts/templates/${selectedTemplateId}/activate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version_id: versionId })
-      });
-      await loadTemplates();
-      await loadVersions(selectedTemplateId);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function onStartEditVersion(versionId: number) {
-    const ver = versions.find((v) => v.id === versionId);
-    if (!ver) return;
-    setSelectedVersionId(versionId);
-    setEditingVersionId(versionId);
-    setEditingContent(ver.content);
-  }
-
-  function onCancelEditVersion() {
-    setEditingVersionId(null);
-    setEditingContent("");
-  }
-
-  async function onSaveEditVersion() {
-    if (!selectedTemplateId || !editingVersionId || !editingContent.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch(`/prompts/templates/${selectedTemplateId}/versions/${editingVersionId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: editingContent.trim() })
-      });
-      await loadVersions(selectedTemplateId);
-      setEditingVersionId(null);
-      setEditingContent("");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSaveFixedTags(e: FormEvent) {
-    e.preventDefault();
-    if (fixedTags.some((t) => !t.trim())) {
-      setError("固定标签必须填写5个且不能为空。");
+    if (!createForm.track.trim() || !createForm.name.trim() || !createForm.content.trim()) {
+      setError("赛道、名称、内容都不能为空。");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const payload = { fixed_tags: fixedTags.map((t) => t.trim().replace(/^#/, "")) };
-      const data = await apiFetch<FixedTagsConfig>("/tags/fixed", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      setFixedTags(data.fixed_tags);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onCreateFloatingTag(e: FormEvent) {
-    e.preventDefault();
-    if (!newFloatingTag.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      await apiFetch("/tags", {
+      const created = await apiFetch<PromptItem>("/prompts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tag_text: newFloatingTag.trim().replace(/^#/, ""), enabled: true })
+        body: JSON.stringify({
+          track: createForm.track.trim(),
+          name: createForm.name.trim(),
+          content: createForm.content,
+          enabled: createForm.enabled
+        })
       });
-      setNewFloatingTag("");
-      await loadTags();
+      setEditingPromptId(created.id);
+      setIsCreateOpen(false);
+      await Promise.all([loadPrompts(), loadTracks()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -279,16 +148,28 @@ export default function PromptsPage() {
     }
   }
 
-  async function onToggleTag(tag: Tag) {
+  async function onUpdatePrompt(e: FormEvent) {
+    e.preventDefault();
+    if (!editingPromptId) return;
+    if (!editForm.track.trim() || !editForm.name.trim() || !editForm.content.trim()) {
+      setError("赛道、名称、内容都不能为空。");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      await apiFetch(`/tags/${tag.id}`, {
+      await apiFetch<PromptItem>(`/prompts/${editingPromptId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !tag.enabled })
+        body: JSON.stringify({
+          track: editForm.track.trim(),
+          name: editForm.name.trim(),
+          content: editForm.content,
+          enabled: editForm.enabled
+        })
       });
-      await loadTags();
+      setIsEditOpen(false);
+      await Promise.all([loadPrompts(), loadTracks()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -296,19 +177,50 @@ export default function PromptsPage() {
     }
   }
 
-  async function onDeleteTag(tag: Tag) {
-    const ok = window.confirm(`确认删除标签 #${tag.tag_text} 吗？`);
+  async function onTogglePromptEnabled(prompt: PromptItem) {
+    setLoading(true);
+    setError("");
+    try {
+      await apiFetch<PromptItem>(`/prompts/${prompt.id}/${prompt.enabled ? "disable" : "enable"}`, {
+        method: "POST"
+      });
+      await loadPrompts();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onDeletePrompt(prompt: PromptItem) {
+    const ok = window.confirm(`确认删除提示词 #${prompt.id}「${prompt.name}」吗？`);
     if (!ok) return;
     setLoading(true);
     setError("");
     try {
-      await apiFetch(`/tags/${tag.id}`, { method: "DELETE" });
-      await loadTags();
+      await apiFetch(`/prompts/${prompt.id}`, { method: "DELETE" });
+      await Promise.all([loadPrompts(), loadTracks()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function openEditModal(prompt: PromptItem) {
+    setEditingPromptId(prompt.id);
+    setEditForm({
+      track: prompt.track,
+      name: prompt.name,
+      content: prompt.content,
+      enabled: prompt.enabled
+    });
+    setError("");
+    setIsEditOpen(true);
+  }
+
+  function closeEditModal() {
+    setIsEditOpen(false);
   }
 
   return (
@@ -316,7 +228,7 @@ export default function PromptsPage() {
       <header className="pageHeader rowHeader">
         <div>
           <h1>Prompt 配置中心</h1>
-          <p>管理模板、版本、启用状态与标签配置</p>
+          <p>管理全局模型与提示词（赛道/名称/内容）</p>
         </div>
         <button onClick={() => void loadAll()} disabled={loading}>刷新</button>
       </header>
@@ -337,172 +249,182 @@ export default function PromptsPage() {
       </section>
 
       <section className="card">
-        <h2>当前生效模板（按类型）</h2>
-        <p>
-          模型：{activeModel}
-        </p>
-        <p>
-          rewrite：{activeByType.rewrite ? `#${activeByType.rewrite.id} / v${activeByType.rewrite.active_version_no}` : "未配置"}
-          {" | "}
-          intro：{activeByType.intro ? `#${activeByType.intro.id} / v${activeByType.intro.active_version_no}` : "未配置"}
-          {" | "}
-          tag：{activeByType.tag ? `#${activeByType.tag.id} / v${activeByType.tag.active_version_no}` : "未配置"}
-          {" | "}
-          create：{activeByType.create ? `#${activeByType.create.id} / v${activeByType.create.active_version_no}` : "未配置"}
-        </p>
-      </section>
-
-      <section className="card">
-        <h2>创建模板</h2>
-        <form onSubmit={onCreateTemplate} className="stack">
-          <select value={newTplType} onChange={(e) => setNewTplType(e.target.value)}>
-            <option value="rewrite">rewrite</option>
-            <option value="intro">intro</option>
-            <option value="tag">tag</option>
-            <option value="fusion">fusion</option>
-            <option value="create">create</option>
+        <h2>提示词筛选</h2>
+        <div className="rowHeader">
+          <select value={filterTrack} onChange={(e) => setFilterTrack(e.target.value)}>
+            <option value="">全部赛道</option>
+            {tracks.map((track) => (
+              <option key={track} value={track}>{track}</option>
+            ))}
           </select>
-          <input value={newTplName} onChange={(e) => setNewTplName(e.target.value)} placeholder="模板名" />
-          <button type="submit" disabled={loading}>创建模板</button>
-        </form>
+          <select value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value)}>
+            <option value="all">全部状态</option>
+            <option value="enabled">仅启用</option>
+            <option value="disabled">仅禁用</option>
+          </select>
+          <input
+            value={filterKeyword}
+            onChange={(e) => setFilterKeyword(e.target.value)}
+            placeholder="按名称关键字筛选"
+          />
+          <button type="button" onClick={() => { setFilterTrack(""); setFilterEnabled("all"); setFilterKeyword(""); }}>
+            重置
+          </button>
+        </div>
       </section>
 
       <section className="card">
-        <h2>模板列表</h2>
+        <div className="rowHeader">
+          <h2>提示词列表</h2>
+          <button type="button" onClick={openCreateModal}>新建提示词</button>
+        </div>
         <div className="table">
           <div className="thead">
             <span>ID</span>
-            <span>类型</span>
+            <span>赛道</span>
             <span>名称</span>
-            <span>当前启用</span>
+            <span>状态</span>
+            <span>更新时间</span>
             <span>操作</span>
           </div>
-          {templates.map((t) => (
+          {prompts.map((prompt) => (
             <div
-              key={t.id}
-              className={`trow clickable ${selectedTemplateId === t.id ? "active" : ""}`}
-              onClick={() => setSelectedTemplateId(t.id)}
+              key={prompt.id}
+              className="trow"
             >
-              <span>{t.id}</span>
-              <span>{t.prompt_type}</span>
-              <span>{t.name}</span>
-              <span>{t.active_version_no ? `v${t.active_version_no}` : "-"}</span>
-              <span>
-                <button onClick={(e) => { e.stopPropagation(); void onDeleteTemplate(t.id); }} disabled={loading}>
+              <span>{prompt.id}</span>
+              <span>{prompt.track}</span>
+              <span>{prompt.name}</span>
+              <span>{prompt.enabled ? "启用" : "禁用"}</span>
+              <span>{prompt.updated_at.replace("T", " ").slice(0, 19)}</span>
+              <span className="actions">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); openEditModal(prompt); }}
+                  disabled={loading}
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void onTogglePromptEnabled(prompt); }}
+                  disabled={loading}
+                >
+                  {prompt.enabled ? "禁用" : "启用"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void onDeletePrompt(prompt); }}
+                  disabled={loading}
+                >
                   删除
                 </button>
               </span>
             </div>
           ))}
-          {templates.length === 0 ? <p className="empty">暂无模板</p> : null}
+          {prompts.length === 0 ? <p className="empty">暂无提示词</p> : null}
         </div>
       </section>
 
-      <section className="card">
-        <h2>版本管理 {selectedTemplateId ? `(Template #${selectedTemplateId})` : ""}</h2>
-        {selectedTemplateId ? (
-          <>
-            <form onSubmit={onCreateVersion} className="stack">
-              <textarea
-                rows={6}
-                value={newVerContent}
-                onChange={(e) => setNewVerContent(e.target.value)}
-                placeholder="Prompt 内容，可包含变量：{original_note} / {rewritten_note} / {book_title} / {matched_segments}"
-              />
+      <datalist id="prompt-track-options">
+        {tracks.map((track) => (
+          <option key={track} value={track} />
+        ))}
+      </datalist>
+
+      {isCreateOpen ? (
+        <div className="modalMask" onClick={closeCreateModal}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="rowHeader">
+              <h2>新建提示词</h2>
+              <button type="button" onClick={closeCreateModal}>关闭</button>
+            </div>
+            <form onSubmit={onCreatePrompt} className="stack">
+              <div className="bindRow">
+                <span>赛道（可选已有或直接输入新赛道）</span>
+                <input
+                  list="prompt-track-options"
+                  value={createForm.track}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, track: e.target.value }))}
+                  placeholder="例如：教师赛道"
+                />
+              </div>
+              <div className="bindRow">
+                <span>提示词名称</span>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="请输入提示词名称"
+                />
+              </div>
               <label className="checkbox">
-                <input type="checkbox" checked={newVerActivate} onChange={(e) => setNewVerActivate(e.target.checked)} />
-                创建后立即启用
+                <input
+                  type="checkbox"
+                  checked={createForm.enabled}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                />
+                启用状态（勾选=启用）
               </label>
-              <button type="submit" disabled={loading}>新增版本</button>
+              <textarea
+                rows={12}
+                value={createForm.content}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, content: e.target.value }))}
+                placeholder="提示词内容。可包含变量：{title} {original_note} {book_title} {matched_segments} {rewritten_note}"
+              />
+              <div className="actions">
+                <button type="submit" disabled={loading}>创建提示词</button>
+              </div>
             </form>
-
-            <div className="table">
-              <div className="thead">
-                <span>ID</span>
-                <span>版本号</span>
-                <span>状态</span>
-                <span>操作</span>
-              </div>
-              {versions.map((v) => (
-                <div key={v.id} className={`trow ${selectedVersionId === v.id ? "active" : ""}`}>
-                  <span>{v.id}</span>
-                  <span>v{v.version_no}</span>
-                  <span>{v.is_active ? "active" : "inactive"}</span>
-                  <span className="actions">
-                    <button onClick={() => setSelectedVersionId(v.id)} disabled={loading}>查看内容</button>
-                    <button onClick={() => onStartEditVersion(v.id)} disabled={loading}>编辑</button>
-                    <button onClick={() => void onActivateVersion(v.id)} disabled={loading}>启用/回滚</button>
-                  </span>
-                </div>
-              ))}
-              {versions.length === 0 ? <p className="empty">当前模板暂无版本</p> : null}
-            </div>
-            {editingVersionId ? (
-              <div className="stack">
-                <label>编辑版本内容（Version #{editingVersionId}）</label>
-                <textarea rows={10} value={editingContent} onChange={(e) => setEditingContent(e.target.value)} />
-                <div className="actions">
-                  <button onClick={() => void onSaveEditVersion()} disabled={loading}>保存修改</button>
-                  <button onClick={() => onCancelEditVersion()} disabled={loading}>取消编辑</button>
-                </div>
-              </div>
-            ) : (
-              <textarea rows={10} readOnly value={selectedVersion?.content || ""} placeholder="点击“查看内容”查看该版本 Prompt 详情" />
-            )}
-          </>
-        ) : (
-          <p className="empty">请先选择一个模板</p>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>固定标签配置（固定5个）</h2>
-        <form onSubmit={onSaveFixedTags} className="stack">
-          {fixedTags.map((tag, idx) => (
-            <input
-              key={idx}
-              value={tag}
-              onChange={(e) => {
-                const next = [...fixedTags];
-                next[idx] = e.target.value;
-                setFixedTags(next);
-              }}
-              placeholder={`固定标签 ${idx + 1}`}
-            />
-          ))}
-          <button type="submit" disabled={loading}>保存固定标签</button>
-        </form>
-      </section>
-
-      <section className="card">
-        <h2>浮动标签池（随机10个来源）</h2>
-        <form onSubmit={onCreateFloatingTag} className="rowHeader">
-          <input value={newFloatingTag} onChange={(e) => setNewFloatingTag(e.target.value)} placeholder="新增标签，例如：班主任日常" />
-          <button type="submit" disabled={loading}>新增标签</button>
-        </form>
-        <div className="table">
-          <div className="thead">
-            <span>ID</span>
-            <span>标签</span>
-            <span>启用</span>
-            <span>操作</span>
           </div>
-          {floatingTags.map((tag) => (
-            <div key={tag.id} className="trow">
-              <span>{tag.id}</span>
-              <span>#{tag.tag_text}</span>
-              <span>{tag.enabled ? "是" : "否"}</span>
-              <span className="actions">
-                <button onClick={() => void onToggleTag(tag)} disabled={loading}>
-                  {tag.enabled ? "禁用" : "启用"}
-                </button>
-                <button onClick={() => void onDeleteTag(tag)} disabled={loading}>删除</button>
-              </span>
-            </div>
-          ))}
-          {floatingTags.length === 0 ? <p className="empty">暂无标签</p> : null}
         </div>
-      </section>
+      ) : null}
+
+      {isEditOpen ? (
+        <div className="modalMask" onClick={closeEditModal}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="rowHeader">
+              <h2>{editingPromptId ? `编辑提示词 #${editingPromptId}` : "编辑提示词"}</h2>
+              <button type="button" onClick={closeEditModal}>关闭</button>
+            </div>
+            <form onSubmit={onUpdatePrompt} className="stack">
+              <div className="bindRow">
+                <span>赛道（可选已有或直接输入新赛道）</span>
+                <input
+                  list="prompt-track-options"
+                  value={editForm.track}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, track: e.target.value }))}
+                  placeholder="例如：教师赛道"
+                />
+              </div>
+              <div className="bindRow">
+                <span>提示词名称</span>
+                <input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="请输入提示词名称"
+                />
+              </div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={editForm.enabled}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                />
+                启用状态（勾选=启用）
+              </label>
+              <textarea
+                rows={12}
+                value={editForm.content}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, content: e.target.value }))}
+                placeholder="提示词内容。可包含变量：{title} {original_note} {book_title} {matched_segments} {rewritten_note}"
+              />
+              <div className="actions">
+                <button type="submit" disabled={loading}>保存修改</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

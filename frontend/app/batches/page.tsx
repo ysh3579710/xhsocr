@@ -3,11 +3,18 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { Batch, Task } from "../../lib/types";
+import { Batch, Book, Task } from "../../lib/types";
+
+function taskDetailPath(task: Task): string {
+  if (task.task_type === "create") return `/create-tasks/${task.id}`;
+  if (task.task_type === "framework") return `/framework-tasks/${task.id}`;
+  return `/tasks/${task.id}`;
+}
 
 export default function BatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,12 +23,14 @@ export default function BatchesPage() {
     setLoading(true);
     setError("");
     try {
-      const [batchData, taskData] = await Promise.all([
+      const [batchData, taskData, bookData] = await Promise.all([
         apiFetch<Batch[]>("/batch"),
-        apiFetch<Task[]>("/tasks?task_type=all")
+        apiFetch<Task[]>("/tasks?task_type=all"),
+        apiFetch<Book[]>("/books")
       ]);
       setBatches(batchData);
       setTasks(taskData);
+      setBooks(bookData);
       if (batchData.length > 0 && !selectedBatchId) {
         setSelectedBatchId(batchData[0].id);
       }
@@ -40,6 +49,11 @@ export default function BatchesPage() {
     () => tasks.filter((t) => t.batch_id === selectedBatchId),
     [tasks, selectedBatchId]
   );
+  const bookTitleById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const b of books) map.set(b.id, b.title);
+    return map;
+  }, [books]);
 
   return (
     <div className="pageWrap">
@@ -88,8 +102,8 @@ export default function BatchesPage() {
         <div className="table">
           <div className="thead">
             <span>Task ID</span>
-            <span>目录名</span>
-            <span>书稿ID</span>
+            <span>任务名</span>
+            <span>书稿名称</span>
             <span>状态</span>
             <span>操作</span>
           </div>
@@ -97,9 +111,9 @@ export default function BatchesPage() {
             <div key={t.id} className="trow">
               <span>{t.id}</span>
               <span>{t.folder_name}</span>
-              <span>{t.book_id}</span>
+              <span>{t.book_id ? (bookTitleById.get(t.book_id) || `ID:${t.book_id}`) : "-"}</span>
               <span>{t.status}</span>
-              <span><Link className="linkBtn" href={`/tasks/${t.id}`}>查看详情</Link></span>
+              <span><Link className="linkBtn" href={taskDetailPath(t)}>查看详情</Link></span>
             </div>
           ))}
           {selectedTasks.length === 0 ? <p className="empty">当前批次暂无子任务</p> : null}

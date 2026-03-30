@@ -14,6 +14,9 @@ export type Task = {
   batch_id?: number | null;
   folder_name: string;
   book_id?: number | null;
+  book_name?: string | null;
+  prompt_id?: number | null;
+  prompt_name?: string | null;
   llm_model: string;
   status: string;
   error_message?: string | null;
@@ -28,10 +31,8 @@ export type TaskDetail = Task & {
     keywords?: string[];
     top_segments?: Array<{ segment_index: number; score: number; content: string }>;
   } | null;
-  rewritten_note?: string | null;
-  intro_text?: string | null;
-  fixed_tags_text?: string | null;
-  random_tags_text?: string | null;
+  extracted_title?: string | null;
+  extracted_points_text?: string | null;
   full_output?: string | null;
 };
 
@@ -46,22 +47,14 @@ export type Batch = {
   created_at: string;
 };
 
-export type PromptTemplate = {
+export type PromptItem = {
   id: number;
-  prompt_type: string;
+  track: string;
   name: string;
-  active_version_id?: number | null;
-  active_version_no?: number | null;
-  created_at: string;
-};
-
-export type PromptVersion = {
-  id: number;
-  template_id: number;
-  version_no: number;
   content: string;
-  is_active: boolean;
+  enabled: boolean;
   created_at: string;
+  updated_at: string;
 };
 
 export type TaskCreateResponse = {

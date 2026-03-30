@@ -55,7 +55,7 @@ function createEmptyPasteGroup(index: number, bookId?: number): PastedGroup {
   };
 }
 
-export default function TasksPage() {
+export default function FrameworkTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
@@ -66,7 +66,6 @@ export default function TasksPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const [createMode, setCreateMode] = useState<CreateMode>("paste");
-
   const [taskFiles, setTaskFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("批次");
   const [promptId, setPromptId] = useState<number | "">("");
@@ -128,16 +127,16 @@ export default function TasksPage() {
     setLoading(true);
     setError("");
     try {
-      const [taskData, bookData] = await Promise.all([
-        apiFetch<Task[]>("/tasks"),
-        apiFetch<Book[]>("/books")
+      const [taskData, bookData, promptData] = await Promise.all([
+        apiFetch<Task[]>("/tasks?task_type=framework"),
+        apiFetch<Book[]>("/books"),
+        apiFetch<PromptItem[]>("/prompts?enabled=true")
       ]);
       setTasks(taskData);
       setBooks(bookData);
-      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
       setPrompts(promptData);
       if (promptData.length > 0) {
-        const recentPrompt = taskData.find((t) => t.task_type === "ocr" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
+        const recentPrompt = taskData.find((t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
           ?.prompt_id;
         setPromptId(recentPrompt || promptData[0].id);
       } else {
@@ -152,16 +151,16 @@ export default function TasksPage() {
 
   async function loadDataSilently() {
     try {
-      const [taskData, bookData] = await Promise.all([
-        apiFetch<Task[]>("/tasks"),
-        apiFetch<Book[]>("/books")
+      const [taskData, bookData, promptData] = await Promise.all([
+        apiFetch<Task[]>("/tasks?task_type=framework"),
+        apiFetch<Book[]>("/books"),
+        apiFetch<PromptItem[]>("/prompts?enabled=true")
       ]);
       setTasks(taskData);
       setBooks(bookData);
-      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
       setPrompts(promptData);
       if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-        const recentPrompt = taskData.find((t) => t.task_type === "ocr" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
+        const recentPrompt = taskData.find((t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
           ?.prompt_id;
         setPromptId(recentPrompt || promptData[0].id);
       }
@@ -199,7 +198,7 @@ export default function TasksPage() {
     setFolderBindings({});
     setBatchName("批次");
     if (prompts.length > 0) {
-      const recentPrompt = tasks.find((t) => t.task_type === "ocr" && t.prompt_id && prompts.some((p) => p.id === t.prompt_id))
+      const recentPrompt = tasks.find((t) => t.task_type === "framework" && t.prompt_id && prompts.some((p) => p.id === t.prompt_id))
         ?.prompt_id;
       setPromptId(recentPrompt || prompts[0].id);
     } else {
@@ -405,15 +404,15 @@ export default function TasksPage() {
       setError("请先上传目录");
       return false;
     }
-    if (!promptId) {
-      setError("请选择提示词。");
-      return false;
-    }
     for (const folder of folderNames) {
       if (!folderBindings[folder]) {
         setError(`目录 ${folder} 未绑定书稿`);
         return false;
       }
+    }
+    if (!promptId) {
+      setError("请选择提示词。");
+      return false;
     }
 
     const fd = new FormData();
@@ -428,7 +427,7 @@ export default function TasksPage() {
       const rel = (file as UploadFile).webkitRelativePath || file.name;
       fd.append("files", file, rel);
     }
-    await apiFetch<TaskCreateResponse>("/tasks", { method: "POST", body: fd });
+    await apiFetch<TaskCreateResponse>("/tasks/framework", { method: "POST", body: fd });
     return true;
   }
 
@@ -491,7 +490,7 @@ export default function TasksPage() {
     fd.append("batch_name", batchName || "batch");
     fd.append("prompt_id", String(promptId));
     fd.append("auto_enqueue", "true");
-    await apiFetch<TaskCreateResponse>("/tasks", { method: "POST", body: fd });
+    await apiFetch<TaskCreateResponse>("/tasks/framework", { method: "POST", body: fd });
     return true;
   }
 
@@ -521,8 +520,8 @@ export default function TasksPage() {
     <div className="pageWrap">
       <header className="pageHeader rowHeader">
         <div>
-          <h1>任务列表</h1>
-          <p>创建任务、查看状态、进入任务详情、失败任务重试</p>
+          <h1>原创创作（框架）</h1>
+          <p>图片OCR → 自动提取标题与分点 → 单提示词生成最终正文</p>
         </div>
         <div className="actions">
           <button onClick={openCreateModal}>创建任务</button>
@@ -553,7 +552,7 @@ export default function TasksPage() {
               <span>{t.status}</span>
               <span>{formatBeijingDateTime(t.created_at)}</span>
               <span className="actions">
-                <Link className="linkBtn" href={`/tasks/${t.id}`}>详情</Link>
+                <Link className="linkBtn" href={`/framework-tasks/${t.id}`}>详情</Link>
                 <button onClick={() => void onRetry(t.id, t.status)} disabled={loading}>重试</button>
                 <button onClick={() => void onDelete(t.id)} disabled={loading || t.status === "processing"}>删除</button>
               </span>

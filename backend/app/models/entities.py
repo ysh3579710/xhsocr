@@ -4,7 +4,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,19 +25,13 @@ class TaskStatus(str, enum.Enum):
 class TaskType(str, enum.Enum):
     ocr = "ocr"
     create = "create"
+    framework = "framework"
 
 
 class BatchType(str, enum.Enum):
     ocr = "ocr"
     create = "create"
-
-
-class PromptType(str, enum.Enum):
-    rewrite = "rewrite"
-    intro = "intro"
-    tag = "tag"
-    fusion = "fusion"
-    create = "create"
+    framework = "framework"
 
 
 class Book(Base):
@@ -86,28 +80,23 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
-class PromptTemplate(Base):
-    __tablename__ = "prompt_templates"
+class Prompt(Base):
+    __tablename__ = "prompts"
+    __table_args__ = (
+        UniqueConstraint("track", "name", name="uq_prompts_track_name"),
+        Index("ix_prompts_track", "track"),
+        Index("ix_prompts_enabled", "enabled"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    prompt_type: Mapped[PromptType] = mapped_column(Enum(PromptType, name="prompt_type"), nullable=False)
+    track: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-    versions = relationship("PromptVersion", back_populates="template", cascade="all, delete-orphan")
-
-
-class PromptVersion(Base):
-    __tablename__ = "prompt_versions"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    template_id: Mapped[int] = mapped_column(ForeignKey("prompt_templates.id", ondelete="CASCADE"), nullable=False)
-    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
-    template = relationship("PromptTemplate", back_populates="versions")
+    tasks = relationship("Task", back_populates="prompt")
 
 
 class Batch(Base):
@@ -139,6 +128,8 @@ class Task(Base):
     batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("batches.id", ondelete="SET NULL"), nullable=True)
     folder_name: Mapped[str] = mapped_column(String(255), nullable=False)
     book_id: Mapped[Optional[int]] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=True)
+    prompt_id: Mapped[Optional[int]] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
+    prompt_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="openai/gpt-5-mini")
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, name="task_status"), nullable=False, default=TaskStatus.waiting)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -147,6 +138,7 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     batch = relationship("Batch", back_populates="tasks")
+    prompt = relationship("Prompt", back_populates="tasks")
     images = relationship("TaskImage", back_populates="task", cascade="all, delete-orphan")
     result = relationship("TaskResult", back_populates="task", uselist=False, cascade="all, delete-orphan")
     logs = relationship("TaskLog", back_populates="task", cascade="all, delete-orphan")
@@ -172,6 +164,8 @@ class TaskResult(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
     original_note_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     matched_book_segments: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    extracted_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extracted_points_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rewritten_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     intro_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fixed_tags_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

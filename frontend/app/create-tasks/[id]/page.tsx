@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../../lib/api";
-import { TaskDetail } from "../../../lib/types";
+import { Task, TaskDetail } from "../../../lib/types";
 import { formatBeijingDateTime } from "../../../lib/time";
 
 export default function CreateTaskDetailPage() {
@@ -16,6 +16,8 @@ export default function CreateTaskDetailPage() {
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
   const [toast, setToast] = useState("");
+  const [taskIds, setTaskIds] = useState<number[]>([]);
+  const [editedFullOutput, setEditedFullOutput] = useState("");
 
   function showToast(message: string) {
     setToast(message);
@@ -48,13 +50,18 @@ export default function CreateTaskDetailPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await apiFetch<TaskDetail>(`/tasks/${taskId}`);
+      const [data, list] = await Promise.all([
+        apiFetch<TaskDetail>(`/tasks/${taskId}`),
+        apiFetch<Task[]>("/tasks?task_type=create")
+      ]);
       if (data.task_type !== "create") {
         setError("该任务不是原创创作任务。");
         setDetail(null);
         return;
       }
       setDetail(data);
+      setEditedFullOutput(data.full_output || "");
+      setTaskIds(list.map((t) => t.id));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -65,14 +72,23 @@ export default function CreateTaskDetailPage() {
   async function loadDetailSilently() {
     if (!taskId) return;
     try {
-      const data = await apiFetch<TaskDetail>(`/tasks/${taskId}`);
+      const [data, list] = await Promise.all([
+        apiFetch<TaskDetail>(`/tasks/${taskId}`),
+        apiFetch<Task[]>("/tasks?task_type=create")
+      ]);
       if (data.task_type !== "create") return;
       setDetail(data);
+      setEditedFullOutput(data.full_output || "");
+      setTaskIds(list.map((t) => t.id));
       setAutoRefreshError("");
     } catch (e) {
       setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
     }
   }
+
+  const currentIndex = useMemo(() => taskIds.findIndex((id) => id === taskId), [taskIds, taskId]);
+  const prevTaskId = currentIndex > 0 ? taskIds[currentIndex - 1] : null;
+  const nextTaskId = currentIndex >= 0 && currentIndex < taskIds.length - 1 ? taskIds[currentIndex + 1] : null;
 
   useEffect(() => {
     void loadDetail();
@@ -133,6 +149,25 @@ export default function CreateTaskDetailPage() {
     }
   }
 
+  async function onSaveFullOutput() {
+    setLoading(true);
+    setError("");
+    try {
+      const updated = await apiFetch<TaskDetail>(`/tasks/${taskId}/full-output`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_output: editedFullOutput }),
+      });
+      setDetail(updated);
+      setEditedFullOutput(updated.full_output || "");
+      showToast("保存成功");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="pageWrap">
       <header className="pageHeader rowHeader">
@@ -142,6 +177,8 @@ export default function CreateTaskDetailPage() {
         </div>
         <div className="actions">
           <Link className="linkBtn" href="/create-tasks">返回原创任务列表</Link>
+          <button onClick={() => router.push(`/create-tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
+          <button onClick={() => router.push(`/create-tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
           <button onClick={() => void onRetry()} disabled={loading}>重试</button>
           <button onClick={() => void onDelete()} disabled={loading || detail?.status === "processing"}>删除任务</button>
@@ -161,6 +198,8 @@ export default function CreateTaskDetailPage() {
               <div><strong>状态</strong><p>{detail.status}</p></div>
               <div><strong>标题</strong><p>{detail.title || "-"}</p></div>
               <div><strong>书稿ID</strong><p>{detail.book_id ?? "-"}</p></div>
+              <div><strong>提示词</strong><p>{detail.prompt_name || "-"}</p></div>
+              <div><strong>提示词ID</strong><p>{detail.prompt_id ?? "-"}</p></div>
               <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
               <div><strong>创建时间（北京时间）</strong><p>{formatBeijingDateTime(detail.created_at)}</p></div>
               <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
@@ -169,10 +208,11 @@ export default function CreateTaskDetailPage() {
 
           <section className="card">
             <h2>AI 原创正文</h2>
-            <textarea readOnly rows={14} value={detail.rewritten_note || detail.full_output || ""} />
-            <button onClick={() => void copyText(detail.rewritten_note || detail.full_output || "")}>
-              复制正文
-            </button>
+            <textarea rows={14} value={editedFullOutput} onChange={(e) => setEditedFullOutput(e.target.value)} />
+            <div className="actions">
+              <button onClick={() => void onSaveFullOutput()} disabled={loading}>保存</button>
+              <button onClick={() => void copyText(editedFullOutput)}>复制正文</button>
+            </div>
           </section>
         </>
       ) : null}

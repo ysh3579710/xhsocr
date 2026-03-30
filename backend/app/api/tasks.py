@@ -12,8 +12,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db.deps import get_db
-from app.models.entities import Batch, BatchType, Book, Task, TaskImage, TaskLog, TaskStatus, TaskType
-from app.schemas.tasks import CreateTaskBatchIn, TaskBindingIn, TaskCreateOut, TaskDetailOut, TaskImageOut, TaskItemOut
+from app.models.entities import Batch, BatchType, Book, Prompt, Task, TaskImage, TaskLog, TaskResult, TaskStatus, TaskType
+from app.schemas.tasks import (
+    CreateTaskBatchIn,
+    TaskBindingIn,
+    TaskCreateOut,
+    TaskDetailOut,
+    TaskFullOutputUpdateIn,
+    TaskImageOut,
+    TaskItemOut,
+)
 from app.services.task_queue import enqueue_task
 from app.utils.sort import natural_sort_key
 
@@ -23,7 +31,11 @@ ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 IGNORED_FILE_NAMES = {"Thumbs.db", "desktop.ini"}
 
 
-def _task_to_item(task: Task) -> TaskItemOut:
+def _task_to_item(task: Task, db: Session) -> TaskItemOut:
+    book_name = None
+    if task.book_id is not None:
+        book = db.get(Book, task.book_id)
+        book_name = book.title if book else None
     return TaskItemOut(
         id=task.id,
         task_type=task.task_type.value,
@@ -31,6 +43,9 @@ def _task_to_item(task: Task) -> TaskItemOut:
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,
+        book_name=book_name,
+        prompt_id=task.prompt_id,
+        prompt_name=task.prompt.name if task.prompt else None,
         llm_model=task.llm_model,
         status=task.status.value,
         error_message=task.error_message,
@@ -95,6 +110,7 @@ def _refresh_batch_after_task_change(db: Session, batch_id: int) -> None:
 def create_tasks(
     bindings: str = Form(..., description="JSON array: [{folder_name, book_id}]"),
     files: list[UploadFile] = File(...),
+    prompt_id: int = Form(...),
     batch_name: Optional[str] = Form(default=None),
     auto_enqueue: bool = Form(default=True),
     db: Session = Depends(get_db),
@@ -128,6 +144,12 @@ def create_tasks(
     )
     if exists_books != set(binding_map.values()):
         raise HTTPException(status_code=400, detail="Some book_id does not exist.")
+
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt_id not found.")
+    if not prompt.enabled:
+        raise HTTPException(status_code=400, detail="Prompt is disabled and cannot be selected.")
 
     files_by_folder: dict[str, list[UploadFile]] = {}
     for up in files:
@@ -170,6 +192,154 @@ def create_tasks(
             batch_id=batch.id if batch else None,
             folder_name=folder_name,
             book_id=book_id,
+            prompt_id=prompt.id,
+            prompt_snapshot=prompt.content,
+            status=TaskStatus.waiting,
+        )
+        db.add(task)
+        created_tasks.append(task)
+    db.flush()
+
+    task_root = Path(settings.task_root)
+    task_root.mkdir(parents=True, exist_ok=True)
+
+    for task in created_tasks:
+        folder_files = files_by_folder[task.folder_name]
+        folder_files.sort(key=lambda f: natural_sort_key(Path(f.filename or "").name))
+
+        for idx, up in enumerate(folder_files, start=1):
+            original_name = Path(up.filename or "").name
+            ext = Path(original_name).suffix.lower()
+            safe_name = f"{idx:03d}_{uuid4().hex}{ext}"
+            relative_path = Path(str(task.id)) / safe_name
+            absolute_path = task_root / relative_path
+            absolute_path.parent.mkdir(parents=True, exist_ok=True)
+
+            content = up.file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail=f"Empty file: {up.filename}")
+            absolute_path.write_bytes(content)
+
+            db.add(
+                TaskImage(
+                    task_id=task.id,
+                    file_name=original_name,
+                    sort_index=idx,
+                    file_path=str(relative_path),
+                )
+            )
+
+    db.commit()
+
+    if auto_enqueue:
+        for task in created_tasks:
+            try:
+                enqueue_task(task.id)
+            except Exception as exc:
+                db.add(
+                    TaskLog(
+                        task_id=task.id,
+                        stage="queue",
+                        level="error",
+                        message=f"Enqueue failed: {exc}",
+                    )
+                )
+        db.commit()
+    return TaskCreateOut(
+        batch_id=batch.id if batch else None,
+        task_ids=[task.id for task in created_tasks],
+        total_count=len(created_tasks),
+    )
+
+
+@router.post("/framework", response_model=TaskCreateOut, status_code=status.HTTP_201_CREATED)
+def create_framework_tasks(
+    bindings: str = Form(..., description="JSON array: [{folder_name, book_id}]"),
+    files: list[UploadFile] = File(...),
+    prompt_id: int = Form(...),
+    batch_name: Optional[str] = Form(default=None),
+    auto_enqueue: bool = Form(default=True),
+    db: Session = Depends(get_db),
+) -> TaskCreateOut:
+    try:
+        parsed = json.loads(bindings)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="`bindings` must be valid JSON.")
+
+    try:
+        binding_items = [TaskBindingIn.model_validate(item) for item in parsed]
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid bindings payload.")
+
+    if not binding_items:
+        raise HTTPException(status_code=400, detail="At least one folder binding is required.")
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one image file is required.")
+
+    binding_map: dict[str, int] = {}
+    for item in binding_items:
+        folder_name = item.folder_name.strip()
+        if not folder_name:
+            raise HTTPException(status_code=400, detail="folder_name cannot be empty.")
+        if folder_name in binding_map:
+            raise HTTPException(status_code=400, detail=f"Duplicate binding folder: {folder_name}")
+        binding_map[folder_name] = item.book_id
+
+    exists_books = set(
+        db.execute(select(Book.id).where(Book.id.in_(set(binding_map.values())))).scalars().all()
+    )
+    if exists_books != set(binding_map.values()):
+        raise HTTPException(status_code=400, detail="Some book_id does not exist.")
+
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt_id not found.")
+    if not prompt.enabled:
+        raise HTTPException(status_code=400, detail="Prompt is disabled and cannot be selected.")
+
+    files_by_folder: dict[str, list[UploadFile]] = {}
+    for up in files:
+        if not up.filename:
+            raise HTTPException(status_code=400, detail="Uploaded file missing filename.")
+        if _should_ignore_file(up.filename):
+            continue
+        folder_name = _extract_folder_name(up.filename)
+        ext = Path(up.filename).suffix.lower()
+        if ext not in ALLOWED_IMAGE_EXT:
+            raise HTTPException(status_code=400, detail=f"Unsupported image type: {up.filename}")
+        files_by_folder.setdefault(folder_name, []).append(up)
+
+    missing = [name for name in binding_map if name not in files_by_folder]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"No files found for folders: {', '.join(missing)}")
+
+    if len(files_by_folder) != len(binding_map):
+        extra = [name for name in files_by_folder if name not in binding_map]
+        if extra:
+            raise HTTPException(status_code=400, detail=f"Files include unbound folders: {', '.join(extra)}")
+
+    batch: Optional[Batch] = None
+    if len(binding_map) > 1:
+        batch = Batch(
+            batch_name=(batch_name or "batch").strip() or "batch",
+            batch_type=BatchType.framework,
+            total_count=len(binding_map),
+            success_count=0,
+            failed_count=0,
+            status=TaskStatus.waiting,
+        )
+        db.add(batch)
+        db.flush()
+
+    created_tasks: list[Task] = []
+    for folder_name, book_id in binding_map.items():
+        task = Task(
+            task_type=TaskType.framework,
+            batch_id=batch.id if batch else None,
+            folder_name=folder_name,
+            book_id=book_id,
+            prompt_id=prompt.id,
+            prompt_snapshot=prompt.content,
             status=TaskStatus.waiting,
         )
         db.add(task)
@@ -239,6 +409,12 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
         if not book:
             raise HTTPException(status_code=400, detail="book_id not found.")
 
+    prompt = db.get(Prompt, payload.prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt_id not found.")
+    if not prompt.enabled:
+        raise HTTPException(status_code=400, detail="Prompt is disabled and cannot be selected.")
+
     batch: Optional[Batch] = None
     if len(titles) > 1:
         batch = Batch(
@@ -259,6 +435,8 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
             title=title,
             folder_name=title,
             book_id=payload.book_id,
+            prompt_id=prompt.id,
+            prompt_snapshot=prompt.content,
             batch_id=batch.id if batch else None,
             status=TaskStatus.waiting,
         )
@@ -293,19 +471,27 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
 
 @router.get("", response_model=list[TaskItemOut])
 def list_tasks(task_type: str = Query(default="ocr"), db: Session = Depends(get_db)) -> list[TaskItemOut]:
-    stmt = select(Task).order_by(Task.created_at.desc())
-    if task_type in {"ocr", "create"}:
+    stmt = select(Task).options(selectinload(Task.prompt)).order_by(Task.created_at.desc())
+    if task_type in {"ocr", "create", "framework"}:
         stmt = stmt.where(Task.task_type == TaskType(task_type))
     tasks = db.execute(stmt).scalars().all()
-    return [_task_to_item(t) for t in tasks]
+    return [_task_to_item(t, db) for t in tasks]
 
 
 @router.get("/{task_id}", response_model=TaskDetailOut)
 def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
-    stmt = select(Task).options(selectinload(Task.images), selectinload(Task.result)).where(Task.id == task_id)
+    stmt = (
+        select(Task)
+        .options(selectinload(Task.images), selectinload(Task.result), selectinload(Task.prompt))
+        .where(Task.id == task_id)
+    )
     task = db.execute(stmt).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
+    book_name = None
+    if task.book_id is not None:
+        book = db.get(Book, task.book_id)
+        book_name = book.title if book else None
 
     return TaskDetailOut(
         id=task.id,
@@ -314,6 +500,9 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,
+        book_name=book_name,
+        prompt_id=task.prompt_id,
+        prompt_name=task.prompt.name if task.prompt else None,
         llm_model=task.llm_model,
         status=task.status.value,
         error_message=task.error_message,
@@ -330,10 +519,67 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         ],
         original_note_text=task.result.original_note_text if task.result else None,
         matched_book_segments=task.result.matched_book_segments if task.result else None,
-        rewritten_note=task.result.rewritten_note if task.result else None,
-        intro_text=task.result.intro_text if task.result else None,
-        fixed_tags_text=task.result.fixed_tags_text if task.result else None,
-        random_tags_text=task.result.random_tags_text if task.result else None,
+        extracted_title=task.result.extracted_title if task.result else None,
+        extracted_points_text=task.result.extracted_points_text if task.result else None,
+        full_output=task.result.full_output if task.result else None,
+    )
+
+
+@router.patch("/{task_id}/full-output", response_model=TaskDetailOut)
+def update_task_full_output(task_id: int, payload: TaskFullOutputUpdateIn, db: Session = Depends(get_db)) -> TaskDetailOut:
+    stmt = (
+        select(Task)
+        .options(selectinload(Task.images), selectinload(Task.result), selectinload(Task.prompt))
+        .where(Task.id == task_id)
+    )
+    task = db.execute(stmt).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    result = task.result
+    if not result:
+        result = TaskResult(task_id=task.id)
+        db.add(result)
+        db.flush()
+
+    result.full_output = payload.full_output
+    db.commit()
+    db.refresh(task)
+    if task.result:
+        db.refresh(task.result)
+    book_name = None
+    if task.book_id is not None:
+        book = db.get(Book, task.book_id)
+        book_name = book.title if book else None
+
+    return TaskDetailOut(
+        id=task.id,
+        task_type=task.task_type.value,
+        title=task.title,
+        batch_id=task.batch_id,
+        folder_name=task.folder_name,
+        book_id=task.book_id,
+        book_name=book_name,
+        prompt_id=task.prompt_id,
+        prompt_name=task.prompt.name if task.prompt else None,
+        llm_model=task.llm_model,
+        status=task.status.value,
+        error_message=task.error_message,
+        retry_count=task.retry_count,
+        created_at=task.created_at,
+        images=[
+            TaskImageOut(
+                id=image.id,
+                file_name=image.file_name,
+                sort_index=image.sort_index,
+                file_path=image.file_path,
+            )
+            for image in sorted(task.images, key=lambda i: i.sort_index)
+        ],
+        original_note_text=task.result.original_note_text if task.result else None,
+        matched_book_segments=task.result.matched_book_segments if task.result else None,
+        extracted_title=task.result.extracted_title if task.result else None,
+        extracted_points_text=task.result.extracted_points_text if task.result else None,
         full_output=task.result.full_output if task.result else None,
     )
 
@@ -357,7 +603,7 @@ def retry_task(task_id: int, force: bool = Query(default=False), db: Session = D
     db.refresh(task)
 
     enqueue_task(task.id)
-    return _task_to_item(task)
+    return _task_to_item(task, db)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

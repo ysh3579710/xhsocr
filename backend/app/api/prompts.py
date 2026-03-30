@@ -1,24 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
-from app.models.entities import PromptTemplate, PromptVersion
-from app.schemas.prompts import (
-    LLMModelConfigOut,
-    LLMModelUpdate,
-    PromptActivateIn,
-    PromptTemplateCreate,
-    PromptTemplateOut,
-    PromptVersionCreate,
-    PromptVersionUpdate,
-    PromptVersionOut,
-)
+from app.models.entities import Prompt, Task
+from app.schemas.prompts import LLMModelConfigOut, LLMModelUpdate, PromptCreateIn, PromptOut, PromptUpdateIn
 from app.services.llm_settings import get_active_llm_model, list_supported_llm_models, set_active_llm_model
-from app.services.prompt_service import activate_version, create_template, create_version, parse_prompt_type
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
+
+
+def _to_out(prompt: Prompt) -> PromptOut:
+    return PromptOut(
+        id=prompt.id,
+        track=prompt.track,
+        name=prompt.name,
+        content=prompt.content,
+        enabled=prompt.enabled,
+        created_at=prompt.created_at,
+        updated_at=prompt.updated_at,
+    )
 
 
 @router.get("/llm-model", response_model=LLMModelConfigOut)
@@ -41,149 +43,119 @@ def update_llm_model_config(payload: LLMModelUpdate, db: Session = Depends(get_d
     )
 
 
-def _template_out(db: Session, tpl: PromptTemplate) -> PromptTemplateOut:
-    active = db.execute(
-        select(PromptVersion)
-        .where(and_(PromptVersion.template_id == tpl.id, PromptVersion.is_active.is_(True)))
-        .order_by(PromptVersion.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return PromptTemplateOut(
-        id=tpl.id,
-        prompt_type=tpl.prompt_type.value,
-        name=tpl.name,
-        active_version_id=active.id if active else None,
-        active_version_no=active.version_no if active else None,
-        created_at=tpl.created_at,
-    )
-
-
-@router.post("/templates", response_model=PromptTemplateOut, status_code=status.HTTP_201_CREATED)
-def create_prompt_template(payload: PromptTemplateCreate, db: Session = Depends(get_db)) -> PromptTemplateOut:
-    prompt_type = parse_prompt_type(payload.prompt_type)
-    try:
-        tpl = create_template(db, prompt_type=prompt_type, name=payload.name)
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Prompt template already exists.")
-    return _template_out(db, tpl)
-
-
-@router.get("/templates", response_model=list[PromptTemplateOut])
-def list_prompt_templates(db: Session = Depends(get_db)) -> list[PromptTemplateOut]:
-    templates = db.execute(select(PromptTemplate).order_by(PromptTemplate.created_at.desc())).scalars().all()
-    return [_template_out(db, tpl) for tpl in templates]
-
-
-@router.post(
-    "/templates/{template_id}/versions",
-    response_model=PromptVersionOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_prompt_version(
-    template_id: int,
-    payload: PromptVersionCreate,
-    db: Session = Depends(get_db),
-) -> PromptVersionOut:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
-    ver = create_version(db, template_id=template_id, content=payload.content, activate=payload.activate)
-    return PromptVersionOut(
-        id=ver.id,
-        template_id=ver.template_id,
-        version_no=ver.version_no,
-        content=ver.content,
-        is_active=ver.is_active,
-        created_at=ver.created_at,
-    )
-
-
-@router.get("/templates/{template_id}/versions", response_model=list[PromptVersionOut])
-def list_prompt_versions(template_id: int, db: Session = Depends(get_db)) -> list[PromptVersionOut]:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
+@router.get("/tracks", response_model=list[str])
+def list_tracks(db: Session = Depends(get_db)) -> list[str]:
     rows = (
-        db.execute(select(PromptVersion).where(PromptVersion.template_id == template_id).order_by(PromptVersion.version_no.desc()))
+        db.execute(select(Prompt.track).distinct().where(Prompt.track != "").order_by(Prompt.track.asc()))
         .scalars()
         .all()
     )
-    return [
-        PromptVersionOut(
-            id=row.id,
-            template_id=row.template_id,
-            version_no=row.version_no,
-            content=row.content,
-            is_active=row.is_active,
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
+    return [r for r in rows if r]
 
 
-@router.put("/templates/{template_id}/versions/{version_id}", response_model=PromptVersionOut)
-def update_prompt_version(
-    template_id: int,
-    version_id: int,
-    payload: PromptVersionUpdate,
+@router.get("", response_model=list[PromptOut])
+def list_prompts(
+    track: str | None = Query(default=None),
+    enabled: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
     db: Session = Depends(get_db),
-) -> PromptVersionOut:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
-    ver = db.get(PromptVersion, version_id)
-    if not ver or ver.template_id != template_id:
-        raise HTTPException(status_code=404, detail="Prompt version not found.")
-    ver.content = payload.content
-    db.commit()
-    db.refresh(ver)
-    return PromptVersionOut(
-        id=ver.id,
-        template_id=ver.template_id,
-        version_no=ver.version_no,
-        content=ver.content,
-        is_active=ver.is_active,
-        created_at=ver.created_at,
+) -> list[PromptOut]:
+    stmt = select(Prompt)
+    if track:
+        stmt = stmt.where(Prompt.track == track.strip())
+    if enabled is not None:
+        stmt = stmt.where(Prompt.enabled.is_(enabled))
+    if q:
+        keyword = f"%{q.strip()}%"
+        stmt = stmt.where(Prompt.name.ilike(keyword))
+    stmt = stmt.order_by(Prompt.updated_at.desc(), Prompt.id.desc())
+    rows = db.execute(stmt).scalars().all()
+    return [_to_out(row) for row in rows]
+
+
+@router.post("", response_model=PromptOut, status_code=status.HTTP_201_CREATED)
+def create_prompt(payload: PromptCreateIn, db: Session = Depends(get_db)) -> PromptOut:
+    prompt = Prompt(
+        track=payload.track.strip(),
+        name=payload.name.strip(),
+        content=payload.content,
+        enabled=payload.enabled,
     )
+    db.add(prompt)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="同赛道下提示词名称已存在。")
+    db.refresh(prompt)
+    return _to_out(prompt)
 
 
-@router.post("/templates/{template_id}/activate", response_model=PromptTemplateOut)
-def activate_prompt_version(
-    template_id: int,
-    payload: PromptActivateIn,
-    db: Session = Depends(get_db),
-) -> PromptTemplateOut:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
-
-    ver = db.get(PromptVersion, payload.version_id)
-    if not ver or ver.template_id != template_id:
-        raise HTTPException(status_code=404, detail="Prompt version not found.")
-    activate_version(db, template_id=template_id, version_id=payload.version_id)
-    db.refresh(tpl)
-    return _template_out(db, tpl)
+@router.get("/{prompt_id}", response_model=PromptOut)
+def get_prompt(prompt_id: int, db: Session = Depends(get_db)) -> PromptOut:
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found.")
+    return _to_out(prompt)
 
 
-@router.post("/templates/{template_id}/rollback/{version_id}", response_model=PromptTemplateOut)
-def rollback_prompt_version(template_id: int, version_id: int, db: Session = Depends(get_db)) -> PromptTemplateOut:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
-    ver = db.get(PromptVersion, version_id)
-    if not ver or ver.template_id != template_id:
-        raise HTTPException(status_code=404, detail="Prompt version not found.")
-    activate_version(db, template_id=template_id, version_id=version_id)
-    db.refresh(tpl)
-    return _template_out(db, tpl)
+@router.put("/{prompt_id}", response_model=PromptOut)
+def update_prompt(prompt_id: int, payload: PromptUpdateIn, db: Session = Depends(get_db)) -> PromptOut:
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found.")
+
+    if payload.track is not None:
+        prompt.track = payload.track.strip()
+    if payload.name is not None:
+        prompt.name = payload.name.strip()
+    if payload.content is not None:
+        prompt.content = payload.content
+    if payload.enabled is not None:
+        prompt.enabled = payload.enabled
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="同赛道下提示词名称已存在。")
+    db.refresh(prompt)
+    return _to_out(prompt)
 
 
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_prompt_template(template_id: int, db: Session = Depends(get_db)) -> Response:
-    tpl = db.get(PromptTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail="Prompt template not found.")
-    db.delete(tpl)
+@router.post("/{prompt_id}/enable", response_model=PromptOut)
+def enable_prompt(prompt_id: int, db: Session = Depends(get_db)) -> PromptOut:
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found.")
+    prompt.enabled = True
+    db.commit()
+    db.refresh(prompt)
+    return _to_out(prompt)
+
+
+@router.post("/{prompt_id}/disable", response_model=PromptOut)
+def disable_prompt(prompt_id: int, db: Session = Depends(get_db)) -> PromptOut:
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found.")
+    prompt.enabled = False
+    db.commit()
+    db.refresh(prompt)
+    return _to_out(prompt)
+
+
+@router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_prompt(prompt_id: int, db: Session = Depends(get_db)) -> Response:
+    prompt = db.get(Prompt, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found.")
+
+    referenced = db.execute(select(func.count(Task.id)).where(Task.prompt_id == prompt_id)).scalar_one()
+    if referenced > 0:
+        raise HTTPException(status_code=409, detail="提示词已被任务引用，不能删除。请先禁用。")
+
+    db.delete(prompt)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+

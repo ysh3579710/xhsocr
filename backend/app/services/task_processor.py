@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
-import random
+import re
 import time
 
 from sqlalchemy import select
@@ -13,8 +14,6 @@ from app.models.entities import (
     Batch,
     Book,
     BookSegment,
-    PromptType,
-    TagLibrary,
     Task,
     TaskImage,
     TaskLog,
@@ -24,15 +23,11 @@ from app.models.entities import (
 )
 from app.services.ai_writer import (
     LLMClient,
-    build_intro_prompt,
-    build_rewrite_prompt,
     render_prompt_template,
 )
 from app.services.llm_settings import get_active_llm_model
 from app.services.book_matcher import match_book_segments
 from app.services.ocr import extract_text_with_timeout, get_ocr_service
-from app.services.prompt_service import get_active_version
-from app.services.tag_settings import get_fixed_tags
 
 
 def _log(db, task_id: int, stage: str, level: str, message: str) -> None:
@@ -84,6 +79,51 @@ def _prepare_create_book_context(db, book_id: int | None, limit: int = 6) -> tup
     return book.title, text
 
 
+def _extract_outline_with_internal_prompt(llm: LLMClient, original_note_text: str) -> tuple[str, str, str]:
+    extract_prompt = (
+        "请从下列文本中提取“大标题”和“分点观点标题”，并严格只输出 JSON，格式如下：\n"
+        '{"title":"...","points":["...","..."]}\n'
+        "要求：\n"
+        "1) 只能输出 JSON，不要输出任何其他文字。\n"
+        "2) title 必须是一个字符串。\n"
+        "3) points 必须是字符串数组。\n\n"
+        f"{original_note_text}"
+    )
+    raw = llm.chat(extract_prompt).strip()
+    try:
+        payload = json.loads(raw)
+    except Exception as exc:
+        raise RuntimeError("提取标题或分点观点时出错") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("提取标题或分点观点时出错")
+
+    title = str(payload.get("title", "")).strip()
+    points_raw = payload.get("points", [])
+    if not isinstance(points_raw, list):
+        raise RuntimeError("提取标题或分点观点时出错")
+
+    points = [str(p).strip() for p in points_raw if isinstance(p, str) and str(p).strip()]
+
+    # Title must not be empty and must not be an enumerated list-like content.
+    numbered_like = re.match(r"^\s*(\d+[\.、]|[一二三四五六七八九十]+[、\.])", title) is not None
+    if not title or numbered_like:
+        raise RuntimeError("提取标题或分点观点时出错")
+    if not points:
+        raise RuntimeError("提取标题或分点观点时出错")
+
+    points_text = "\n".join([f"{idx + 1}. {p}" for idx, p in enumerate(points)])
+    outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
+    return title, points_text, outline
+
+
+def _collapse_blank_lines(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Remove empty lines between paragraphs: keep only single line breaks.
+    normalized = re.sub(r"\n[ \t]*\n+", "\n", normalized)
+    return normalized.strip()
+
+
 def process_task(task_id: int) -> None:
     db = SessionLocal()
     try:
@@ -102,6 +142,8 @@ def process_task(task_id: int) -> None:
         if task.task_type == TaskType.create:
             if not task.title or not task.title.strip():
                 raise RuntimeError("Create task title is required.")
+            if not task.prompt_snapshot:
+                raise RuntimeError("Create task prompt snapshot is missing.")
 
             result = db.get(TaskResult, task_id)
             if not result:
@@ -111,28 +153,18 @@ def process_task(task_id: int) -> None:
             book_title, matched_segments_text = _prepare_create_book_context(db, task.book_id)
             llm = LLMClient(model=task.llm_model)
 
-            create_tpl = get_active_version(db, PromptType.create)
-            if create_tpl:
-                create_prompt = render_prompt_template(
-                    create_tpl.content,
-                    {
-                        "title": task.title,
-                        "book_title": book_title,
-                        "matched_segments": matched_segments_text,
-                        "original_note": "",
-                        "rewritten_note": "",
-                    },
-                )
-            else:
-                create_prompt = (
-                    "请基于标题创作一篇小红书原创正文。\n"
-                    f"标题：{task.title}\n"
-                    f"参考书稿：{book_title}\n"
-                    f"可用书稿片段：\n{matched_segments_text}\n\n"
-                    "请直接输出原创正文。"
-                )
+            create_prompt = render_prompt_template(
+                task.prompt_snapshot,
+                {
+                    "title": task.title,
+                    "book_title": book_title,
+                    "matched_segments": matched_segments_text,
+                    "original_note": "",
+                    "rewritten_note": "",
+                },
+            )
 
-            created_text = llm.chat(create_prompt).strip()
+            created_text = _collapse_blank_lines(llm.chat(create_prompt).strip())
             result.rewritten_note = created_text
             result.full_output = created_text
             result.original_note_text = None
@@ -140,6 +172,8 @@ def process_task(task_id: int) -> None:
             result.intro_text = None
             result.fixed_tags_text = None
             result.random_tags_text = None
+            result.extracted_title = None
+            result.extracted_points_text = None
 
             _log_and_commit(db, task, "create", "info", "Create generation finished.")
             task.status = TaskStatus.success
@@ -150,6 +184,8 @@ def process_task(task_id: int) -> None:
 
         if task.book_id is None:
             raise RuntimeError("OCR task book_id is required.")
+        if not task.prompt_snapshot:
+            raise RuntimeError("OCR task prompt snapshot is missing.")
 
         images = (
             db.execute(
@@ -240,70 +276,48 @@ def process_task(task_id: int) -> None:
         matched_segments = matched.get("top_segments", [])
         llm = LLMClient(model=task.llm_model)
 
-        rewrite_default = build_rewrite_prompt(original_note_text, book_title, matched_segments)
-        rewrite_tpl = get_active_version(db, PromptType.rewrite)
-        if rewrite_tpl:
-            rewrite_prompt = render_prompt_template(
-                rewrite_tpl.content,
+        if task.task_type == TaskType.framework:
+            title, points_text, outline = _extract_outline_with_internal_prompt(llm, original_note_text)
+            result.extracted_title = title
+            result.extracted_points_text = points_text
+            _log_and_commit(db, task, "extract", "info", "Outline extraction finished.")
+            final_prompt = render_prompt_template(
+                task.prompt_snapshot,
                 {
+                    "title": title,
+                    "points": points_text,
+                    "outline": outline,
                     "original_note": original_note_text,
                     "book_title": book_title,
                     "matched_segments": "\n\n".join([s["content"] for s in matched_segments]),
+                    "rewritten_note": "",
                 },
             )
+            final_text = llm.chat(final_prompt).strip()
+            _log_and_commit(db, task, "compose", "info", "Framework compose generation finished.")
         else:
-            rewrite_prompt = rewrite_default
-        rewritten_note = llm.chat(rewrite_prompt).strip()
-        result.rewritten_note = rewritten_note
-        _log_and_commit(db, task, "rewrite", "info", "Rewrite generation finished.")
-
-        intro_default = build_intro_prompt(rewritten_note)
-        intro_tpl = get_active_version(db, PromptType.intro)
-        if intro_tpl:
-            intro_prompt = render_prompt_template(
-                intro_tpl.content,
+            result.extracted_title = None
+            result.extracted_points_text = None
+            final_prompt = render_prompt_template(
+                task.prompt_snapshot,
                 {
-                    "rewritten_note": rewritten_note,
+                    "title": task.title or "",
+                    "points": "",
+                    "outline": "",
+                    "original_note": original_note_text,
+                    "book_title": book_title,
+                    "matched_segments": "\n\n".join([s["content"] for s in matched_segments]),
+                    "rewritten_note": "",
                 },
             )
-        else:
-            intro_prompt = intro_default
-        intro_text = llm.chat(intro_prompt).strip()
-        result.intro_text = intro_text
-        if len(intro_text) < 100 or len(intro_text) > 150:
-            _log_and_commit(
-                db,
-                task,
-                "intro",
-                "warning",
-                f"Intro length is {len(intro_text)} (expected 100-150). No retry by design.",
-            )
-        else:
-            _log_and_commit(db, task, "intro", "info", "Intro generation finished within length range.")
-
-        fixed_tags = get_fixed_tags(db)
-
-        enabled_tags = (
-            db.execute(select(TagLibrary).where(TagLibrary.enabled.is_(True)).order_by(TagLibrary.id.asc()))
-            .scalars()
-            .all()
-        )
-        pool = [t.tag_text.strip().lstrip("#") for t in enabled_tags if t.tag_text and t.tag_text.strip()]
-        random_tags: list[str] = []
-        if len(pool) >= 10:
-            random_tags = random.choices(pool, k=10)
-        elif len(pool) > 0:
-            random_tags = [random.choice(pool) for _ in range(10)]
-
-        result.fixed_tags_text = " ".join([f"#{t}" for t in fixed_tags])
-        result.random_tags_text = " ".join([f"#{t}" for t in random_tags])
-        result.full_output = (
-            f"{rewritten_note}\n\n"
-            f"{intro_text}\n\n"
-            f"{result.fixed_tags_text}\n"
-            f"{result.random_tags_text}"
-        )
-        _log_and_commit(db, task, "tags", "info", "Tags generation finished.")
+            final_text = llm.chat(final_prompt).strip()
+        final_text = _collapse_blank_lines(final_text)
+        result.rewritten_note = final_text
+        result.intro_text = None
+        result.fixed_tags_text = None
+        result.random_tags_text = None
+        result.full_output = final_text
+        _log_and_commit(db, task, "write", "info", "Single prompt generation finished.")
 
         task.status = TaskStatus.success
         _log(db, task_id, "ocr", "info", "OCR finished successfully.")

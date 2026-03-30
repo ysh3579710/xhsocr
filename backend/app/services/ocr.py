@@ -12,7 +12,12 @@ from app.core.config import settings
 class OCRService:
     def __init__(self, provider: Optional[str] = None, lang: Optional[str] = None) -> None:
         self.configured_provider = (provider or settings.ocr_provider).lower().strip()
-        self.provider = self.configured_provider
+        provider_aliases = {
+            "rapidocr": "rapidocr_onnxruntime",
+            "rapid_ocr": "rapidocr_onnxruntime",
+            "rapidocr-onnxruntime": "rapidocr_onnxruntime",
+        }
+        self.provider = provider_aliases.get(self.configured_provider, self.configured_provider)
         self.lang = (lang or settings.ocr_lang).strip()
         self.downgrade_reason: Optional[str] = None
         self._engine = None

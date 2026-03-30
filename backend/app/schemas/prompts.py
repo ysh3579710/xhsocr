@@ -4,40 +4,28 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class PromptTemplateCreate(BaseModel):
-    prompt_type: str = Field(pattern="^(rewrite|intro|tag|fusion|create)$")
+class PromptCreateIn(BaseModel):
+    track: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=128)
+    content: str = Field(min_length=1)
+    enabled: bool = True
 
 
-class PromptTemplateOut(BaseModel):
+class PromptUpdateIn(BaseModel):
+    track: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    content: Optional[str] = Field(default=None, min_length=1)
+    enabled: Optional[bool] = None
+
+
+class PromptOut(BaseModel):
     id: int
-    prompt_type: str
+    track: str
     name: str
-    active_version_id: Optional[int] = None
-    active_version_no: Optional[int] = None
-    created_at: datetime
-
-
-class PromptVersionCreate(BaseModel):
-    content: str = Field(min_length=1)
-    activate: bool = False
-
-
-class PromptVersionUpdate(BaseModel):
-    content: str = Field(min_length=1)
-
-
-class PromptVersionOut(BaseModel):
-    id: int
-    template_id: int
-    version_no: int
     content: str
-    is_active: bool
+    enabled: bool
     created_at: datetime
-
-
-class PromptActivateIn(BaseModel):
-    version_id: int
+    updated_at: datetime
 
 
 class LLMModelUpdate(BaseModel):
@@ -47,3 +35,4 @@ class LLMModelUpdate(BaseModel):
 class LLMModelConfigOut(BaseModel):
     active_model: str
     supported_models: list[str]
+

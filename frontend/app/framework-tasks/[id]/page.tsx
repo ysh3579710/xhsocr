@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../../lib/api";
-import { Task, TaskDetail } from "../../../lib/types";
 import { formatBeijingDateTime } from "../../../lib/time";
+import { Task, TaskDetail } from "../../../lib/types";
 
-export default function TaskDetailPage() {
+export default function FrameworkTaskDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const taskId = Number(params.id);
+
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -52,8 +53,13 @@ export default function TaskDetailPage() {
     try {
       const [data, list] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<Task[]>("/tasks")
+        apiFetch<Task[]>("/tasks?task_type=framework"),
       ]);
+      if (data.task_type !== "framework") {
+        setError("该任务不是原创创作（框架）任务。");
+        setDetail(null);
+        return;
+      }
       setDetail(data);
       setEditedFullOutput(data.full_output || "");
       setTaskIds(list.map((t) => t.id));
@@ -69,8 +75,9 @@ export default function TaskDetailPage() {
     try {
       const [data, list] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<Task[]>("/tasks")
+        apiFetch<Task[]>("/tasks?task_type=framework"),
       ]);
+      if (data.task_type !== "framework") return;
       setDetail(data);
       setEditedFullOutput(data.full_output || "");
       setTaskIds(list.map((t) => t.id));
@@ -91,17 +98,12 @@ export default function TaskDetailPage() {
   useEffect(() => {
     const status = detail?.status;
     const intervalMs = status === "waiting" || status === "processing" ? 3000 : 15000;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
     const tick = () => {
       if (document.hidden) return;
       void loadDetailSilently();
     };
-
-    timer = setInterval(tick, intervalMs);
-    return () => {
-      if (timer) clearInterval(timer);
-    };
+    const timer = setInterval(tick, intervalMs);
+    return () => clearInterval(timer);
   }, [detail?.status, taskId]);
 
   async function onRetry() {
@@ -140,7 +142,7 @@ export default function TaskDetailPage() {
     setError("");
     try {
       await apiFetch(`/tasks/${taskId}`, { method: "DELETE" });
-      router.push("/tasks");
+      router.push("/framework-tasks");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -171,13 +173,13 @@ export default function TaskDetailPage() {
     <div className="pageWrap">
       <header className="pageHeader rowHeader">
         <div>
-          <h1>任务详情 #{taskId}</h1>
+          <h1>框架任务详情 #{taskId}</h1>
           <p>查看 OCR、书稿匹配与最终输出</p>
         </div>
         <div className="actions">
-          <Link className="linkBtn" href="/tasks">返回任务列表</Link>
-          <button onClick={() => router.push(`/tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
-          <button onClick={() => router.push(`/tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
+          <Link className="linkBtn" href="/framework-tasks">返回框架任务列表</Link>
+          <button onClick={() => router.push(`/framework-tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
+          <button onClick={() => router.push(`/framework-tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
           <button onClick={() => void onRetry()} disabled={loading}>重试</button>
           <button onClick={() => void onDelete()} disabled={loading || detail?.status === "processing"}>删除任务</button>
@@ -196,9 +198,10 @@ export default function TaskDetailPage() {
             <div className="kvGrid">
               <div><strong>状态</strong><p>{detail.status}</p></div>
               <div><strong>目录</strong><p>{detail.folder_name}</p></div>
-              <div><strong>书稿ID</strong><p>{detail.book_id}</p></div>
+              <div><strong>书稿名称</strong><p>{detail.book_name || "-"}</p></div>
               <div><strong>提示词</strong><p>{detail.prompt_name || "-"}</p></div>
-              <div><strong>提示词ID</strong><p>{detail.prompt_id ?? "-"}</p></div>
+              <div><strong>标题</strong><p>{detail.extracted_title || "-"}</p></div>
+              <div><strong>分点观点</strong><p style={{ whiteSpace: "pre-wrap" }}>{detail.extracted_points_text || "-"}</p></div>
               <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
               <div><strong>创建时间（北京时间）</strong><p>{formatBeijingDateTime(detail.created_at)}</p></div>
               <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
@@ -228,7 +231,7 @@ export default function TaskDetailPage() {
               <textarea rows={8} value={editedFullOutput} onChange={(e) => setEditedFullOutput(e.target.value)} />
               <div className="actions">
                 <button onClick={() => void onSaveFullOutput()} disabled={loading}>保存</button>
-                <button onClick={() => void copyText(editedFullOutput)}>复制最终文本</button>
+                <button onClick={() => void copyText(editedFullOutput)}>复制正文</button>
               </div>
             </div>
           </section>

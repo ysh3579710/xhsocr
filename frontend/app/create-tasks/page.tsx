@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { Book, Task, TaskCreateResponse } from "../../lib/types";
+import { Book, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
 import { formatBeijingDateTime } from "../../lib/time";
 
 function parseTitles(raw: string): string[] {
@@ -16,6 +16,7 @@ function parseTitles(raw: string): string[] {
 export default function CreateTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
@@ -24,8 +25,14 @@ export default function CreateTasksPage() {
   const [titlesText, setTitlesText] = useState("");
   const [batchName, setBatchName] = useState("batch");
   const [bookId, setBookId] = useState<number | "">("");
+  const [promptId, setPromptId] = useState<number | "">("");
 
   const titleCount = useMemo(() => parseTitles(titlesText).length, [titlesText]);
+  const bookTitleById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const b of books) map.set(b.id, b.title);
+    return map;
+  }, [books]);
 
   async function loadData() {
     setLoading(true);
@@ -37,6 +44,15 @@ export default function CreateTasksPage() {
       ]);
       setTasks(taskData);
       setBooks(bookData);
+      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
+      setPrompts(promptData);
+      if (promptData.length > 0) {
+        const recentPrompt = taskData.find((t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
+          ?.prompt_id;
+        setPromptId(recentPrompt || promptData[0].id);
+      } else {
+        setPromptId("");
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -52,6 +68,13 @@ export default function CreateTasksPage() {
       ]);
       setTasks(taskData);
       setBooks(bookData);
+      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
+      setPrompts(promptData);
+      if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
+        const recentPrompt = taskData.find((t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
+          ?.prompt_id;
+        setPromptId(recentPrompt || promptData[0].id);
+      }
       setAutoRefreshError("");
     } catch (e) {
       setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
@@ -80,6 +103,10 @@ export default function CreateTasksPage() {
       setError("请至少输入一个标题。");
       return;
     }
+    if (!promptId) {
+      setError("请选择提示词。");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -89,6 +116,7 @@ export default function CreateTasksPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           titles,
+          prompt_id: Number(promptId),
           book_id: bookId === "" ? null : Number(bookId),
           batch_name: batchName || "batch",
           auto_enqueue: true
@@ -97,6 +125,13 @@ export default function CreateTasksPage() {
       setTitlesText("");
       setBatchName("batch");
       setBookId("");
+      if (prompts.length > 0) {
+        const recentPrompt = tasks.find((t) => t.task_type === "create" && t.prompt_id && prompts.some((p) => p.id === t.prompt_id))
+          ?.prompt_id;
+        setPromptId(recentPrompt || prompts[0].id);
+      } else {
+        setPromptId("");
+      }
       setIsCreateOpen(false);
       await loadData();
     } catch (e) {
@@ -168,19 +203,21 @@ export default function CreateTasksPage() {
 
       <section className="card">
         <div className="table">
-          <div className="thead">
+          <div className="thead trow7">
             <span>ID</span>
             <span>标题</span>
-            <span>书稿ID</span>
+            <span>书稿名称</span>
+            <span>提示词</span>
             <span>状态</span>
             <span>创建时间</span>
             <span>操作</span>
           </div>
           {tasks.map((t) => (
-            <div key={t.id} className="trow">
+            <div key={t.id} className="trow trow7">
               <span>{t.id}</span>
               <span>{t.title || "-"}</span>
-              <span>{t.book_id ?? "-"}</span>
+              <span>{t.book_id ? (bookTitleById.get(t.book_id) || `ID:${t.book_id}`) : "-"}</span>
+              <span>{t.prompt_name || (t.prompt_id ? `ID:${t.prompt_id}` : "-")}</span>
               <span>{t.status}</span>
               <span>{formatBeijingDateTime(t.created_at)}</span>
               <span className="actions">
@@ -195,7 +232,7 @@ export default function CreateTasksPage() {
       </section>
 
       {isCreateOpen ? (
-        <div className="modalMask" onClick={() => setIsCreateOpen(false)}>
+        <div className="modalMask">
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
             <div className="rowHeader">
               <h2>新建原创任务</h2>
@@ -210,6 +247,14 @@ export default function CreateTasksPage() {
               />
               <p className="empty">标题数量：{titleCount}</p>
               <input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="批次名（多标题时生效）" />
+              <select value={promptId} onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">选择提示词（必选）</option>
+                {prompts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    [{p.track}] {p.name}
+                  </option>
+                ))}
+              </select>
               <select value={bookId} onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : "")}>
                 <option value="">不绑定书稿（可选）</option>
                 {books.map((book) => (

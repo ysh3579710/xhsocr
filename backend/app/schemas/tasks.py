@@ -18,6 +18,7 @@ class TaskCreateOut(BaseModel):
 class CreateTaskBatchIn(BaseModel):
     titles: list[str] = Field(min_length=1)
     book_id: Optional[int] = None
+    prompt_id: int
     batch_name: Optional[str] = "batch"
     auto_enqueue: bool = True
 
@@ -29,6 +30,9 @@ class TaskItemOut(BaseModel):
     batch_id: Optional[int]
     folder_name: str
     book_id: Optional[int]
+    book_name: Optional[str]
+    prompt_id: Optional[int]
+    prompt_name: Optional[str]
     llm_model: str
     status: str
     error_message: Optional[str]
@@ -47,8 +51,10 @@ class TaskDetailOut(TaskItemOut):
     images: list[TaskImageOut]
     original_note_text: Optional[str] = None
     matched_book_segments: Optional[dict] = None
-    rewritten_note: Optional[str] = None
-    intro_text: Optional[str] = None
-    fixed_tags_text: Optional[str] = None
-    random_tags_text: Optional[str] = None
+    extracted_title: Optional[str] = None
+    extracted_points_text: Optional[str] = None
     full_output: Optional[str] = None
+
+
+class TaskFullOutputUpdateIn(BaseModel):
+    full_output: str
