@@ -34,6 +34,7 @@ class TaskItemOut(BaseModel):
     prompt_id: Optional[int]
     prompt_name: Optional[str]
     llm_model: str
+    download_count: int = 0
     status: str
     error_message: Optional[str]
     retry_count: int
@@ -58,3 +59,7 @@ class TaskDetailOut(TaskItemOut):
 
 class TaskFullOutputUpdateIn(BaseModel):
     full_output: str
+
+
+class TaskDownloadBatchIn(BaseModel):
+    task_ids: list[int] = Field(min_length=1)

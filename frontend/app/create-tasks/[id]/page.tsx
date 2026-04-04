@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../../lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, apiFetchResponse } from "../../../lib/api";
 import { Task, TaskDetail } from "../../../lib/types";
 import { formatBeijingDateTime } from "../../../lib/time";
 
@@ -18,6 +18,18 @@ export default function CreateTaskDetailPage() {
   const [toast, setToast] = useState("");
   const [taskIds, setTaskIds] = useState<number[]>([]);
   const [editedFullOutput, setEditedFullOutput] = useState("");
+  const [isDirty, setIsDirty] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const dirtyRef = useRef(false);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    dirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  useEffect(() => {
+    editingRef.current = isEditing;
+  }, [isEditing]);
 
   function showToast(message: string) {
     setToast(message);
@@ -42,6 +54,55 @@ export default function CreateTaskDetailPage() {
       showToast("复制成功");
     } catch {
       showToast("复制失败");
+    }
+  }
+
+  function getDownloadFilename(resp: Response, fallback: string): string {
+    const disposition = resp.headers.get("content-disposition") || "";
+    const mStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (mStar?.[1]) {
+      const raw = mStar[1].trim().replace(/^"|"$/g, "");
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    const m = disposition.match(/filename="?([^"]+)"?/i);
+    return m?.[1]?.trim() || fallback;
+  }
+
+  async function downloadCurrentTask() {
+    setLoading(true);
+    setError("");
+    try {
+      if (dirtyRef.current) {
+        const updated = await apiFetch<TaskDetail>(`/tasks/${taskId}/full-output`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ full_output: editedFullOutput }),
+        });
+        setDetail(updated);
+        setEditedFullOutput(updated.full_output || "");
+        setIsDirty(false);
+        showToast("已自动保存后下载");
+      }
+      const resp = await apiFetchResponse(`/tasks/${taskId}/download`);
+      const blob = await resp.blob();
+      const name = getDownloadFilename(resp, `create_task_${taskId}.txt`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      await loadDetailSilently();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -78,7 +139,9 @@ export default function CreateTaskDetailPage() {
       ]);
       if (data.task_type !== "create") return;
       setDetail(data);
-      setEditedFullOutput(data.full_output || "");
+      if (!dirtyRef.current && !editingRef.current) {
+        setEditedFullOutput(data.full_output || "");
+      }
       setTaskIds(list.map((t) => t.id));
       setAutoRefreshError("");
     } catch (e) {
@@ -99,6 +162,7 @@ export default function CreateTaskDetailPage() {
     const intervalMs = status === "waiting" || status === "processing" ? 3000 : 15000;
     const tick = () => {
       if (document.hidden) return;
+      if (dirtyRef.current || editingRef.current) return;
       void loadDetailSilently();
     };
     const timer = setInterval(tick, intervalMs);
@@ -160,6 +224,7 @@ export default function CreateTaskDetailPage() {
       });
       setDetail(updated);
       setEditedFullOutput(updated.full_output || "");
+      setIsDirty(false);
       showToast("保存成功");
     } catch (e) {
       setError((e as Error).message);
@@ -208,10 +273,22 @@ export default function CreateTaskDetailPage() {
 
           <section className="card">
             <h2>AI 原创正文</h2>
-            <textarea rows={14} value={editedFullOutput} onChange={(e) => setEditedFullOutput(e.target.value)} />
+            <textarea
+              rows={14}
+              value={editedFullOutput}
+              onFocus={() => setIsEditing(true)}
+              onBlur={() => setIsEditing(false)}
+              onChange={(e) => {
+                setEditedFullOutput(e.target.value);
+                setIsDirty(true);
+              }}
+            />
             <div className="actions">
               <button onClick={() => void onSaveFullOutput()} disabled={loading}>保存</button>
               <button onClick={() => void copyText(editedFullOutput)}>复制正文</button>
+              <button onClick={() => void downloadCurrentTask()} disabled={loading || !editedFullOutput.trim()}>
+                {detail.download_count > 0 ? "重新下载" : "下载"}
+              </button>
             </div>
           </section>
         </>

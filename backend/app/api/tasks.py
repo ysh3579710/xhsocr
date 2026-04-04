@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
+import re
 import shutil
+import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -18,6 +23,7 @@ from app.schemas.tasks import (
     TaskBindingIn,
     TaskCreateOut,
     TaskDetailOut,
+    TaskDownloadBatchIn,
     TaskFullOutputUpdateIn,
     TaskImageOut,
     TaskItemOut,
@@ -31,9 +37,57 @@ ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 IGNORED_FILE_NAMES = {"Thumbs.db", "desktop.ini"}
 
 
+def _sanitize_filename_part(value: str) -> str:
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "_", value.strip())
+    text = re.sub(r"\s+", "_", text)
+    text = text.strip("._")
+    return text[:80] if text else "untitled"
+
+
+def _filename_timestamp_suffix() -> str:
+    sh_tz = timezone(timedelta(hours=8))
+    return datetime.now(sh_tz).strftime("%Y%m%d_%H%M%S")
+
+
+def _single_download_filename(task: Task) -> str:
+    task_type = task.task_type.value
+    suffix = _filename_timestamp_suffix()
+    if task.task_type.name == "create":
+        title = _sanitize_filename_part(task.title or "untitled")
+        return f"{task_type}_{task.id}_{title}_{suffix}.txt"
+    title_line = ""
+    if task.result and task.result.full_output:
+        first_line = task.result.full_output.replace("\r\n", "\n").replace("\r", "\n").split("\n", 1)[0]
+        title_line = _sanitize_filename_part(first_line)
+    if not title_line:
+        raise HTTPException(status_code=400, detail="最终文本第一行为空，无法生成下载文件名。")
+    return f"{task_type}_{task.id}_{title_line}_{suffix}.txt"
+
+
+def _zip_download_filename(task_types: set[str]) -> str:
+    suffix = _filename_timestamp_suffix()
+    if len(task_types) == 1:
+        only = next(iter(task_types))
+    else:
+        only = "mixed"
+    return f"xhsocr_export_{only}_{suffix}.zip"
+
+
+def _ascii_filename_fallback(file_name: str) -> str:
+    # HTTP header `filename=` must be latin-1 safe in Starlette.
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", file_name).strip("._")
+    return safe or "download.txt"
+
+
+def _content_disposition_header(file_name: str) -> str:
+    fallback = _ascii_filename_fallback(file_name)
+    encoded = quote(file_name, safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
 def _task_to_item(task: Task, db: Session) -> TaskItemOut:
-    book_name = None
-    if task.book_id is not None:
+    book_name = task.book_title_snapshot
+    if book_name is None and task.book_id is not None:
         book = db.get(Book, task.book_id)
         book_name = book.title if book else None
     return TaskItemOut(
@@ -47,6 +101,7 @@ def _task_to_item(task: Task, db: Session) -> TaskItemOut:
         prompt_id=task.prompt_id,
         prompt_name=task.prompt.name if task.prompt else None,
         llm_model=task.llm_model,
+        download_count=(task.result.download_count if task.result else 0),
         status=task.status.value,
         error_message=task.error_message,
         retry_count=task.retry_count,
@@ -144,6 +199,8 @@ def create_tasks(
     )
     if exists_books != set(binding_map.values()):
         raise HTTPException(status_code=400, detail="Some book_id does not exist.")
+    books = db.execute(select(Book).where(Book.id.in_(set(binding_map.values())))).scalars().all()
+    book_title_map = {b.id: b.title for b in books}
 
     prompt = db.get(Prompt, prompt_id)
     if not prompt:
@@ -192,6 +249,7 @@ def create_tasks(
             batch_id=batch.id if batch else None,
             folder_name=folder_name,
             book_id=book_id,
+            book_title_snapshot=book_title_map.get(book_id),
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
             status=TaskStatus.waiting,
@@ -290,6 +348,8 @@ def create_framework_tasks(
     )
     if exists_books != set(binding_map.values()):
         raise HTTPException(status_code=400, detail="Some book_id does not exist.")
+    books = db.execute(select(Book).where(Book.id.in_(set(binding_map.values())))).scalars().all()
+    book_title_map = {b.id: b.title for b in books}
 
     prompt = db.get(Prompt, prompt_id)
     if not prompt:
@@ -338,6 +398,7 @@ def create_framework_tasks(
             batch_id=batch.id if batch else None,
             folder_name=folder_name,
             book_id=book_id,
+            book_title_snapshot=book_title_map.get(book_id),
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
             status=TaskStatus.waiting,
@@ -404,10 +465,12 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
     if not titles:
         raise HTTPException(status_code=400, detail="At least one valid title is required.")
 
+    book_title_snapshot = None
     if payload.book_id is not None:
         book = db.get(Book, payload.book_id)
         if not book:
             raise HTTPException(status_code=400, detail="book_id not found.")
+        book_title_snapshot = book.title
 
     prompt = db.get(Prompt, payload.prompt_id)
     if not prompt:
@@ -435,6 +498,7 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
             title=title,
             folder_name=title,
             book_id=payload.book_id,
+            book_title_snapshot=book_title_snapshot,
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
             batch_id=batch.id if batch else None,
@@ -471,11 +535,75 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
 
 @router.get("", response_model=list[TaskItemOut])
 def list_tasks(task_type: str = Query(default="ocr"), db: Session = Depends(get_db)) -> list[TaskItemOut]:
-    stmt = select(Task).options(selectinload(Task.prompt)).order_by(Task.created_at.desc())
+    stmt = select(Task).options(selectinload(Task.prompt), selectinload(Task.result)).order_by(Task.created_at.desc())
     if task_type in {"ocr", "create", "framework"}:
         stmt = stmt.where(Task.task_type == TaskType(task_type))
     tasks = db.execute(stmt).scalars().all()
     return [_task_to_item(t, db) for t in tasks]
+
+
+@router.post("/download-batch")
+def download_tasks_batch(payload: TaskDownloadBatchIn, db: Session = Depends(get_db)) -> Response:
+    unique_ids = list(dict.fromkeys(payload.task_ids))
+    stmt = select(Task).options(selectinload(Task.result)).where(Task.id.in_(unique_ids))
+    task_map = {t.id: t for t in db.execute(stmt).scalars().all()}
+
+    zip_buffer = io.BytesIO()
+    used_names: dict[str, int] = {}
+    downloaded_tasks: list[Task] = []
+    task_types: set[str] = set()
+
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for task_id in unique_ids:
+            task = task_map.get(task_id)
+            if not task or not task.result or not (task.result.full_output or "").strip():
+                continue
+            base_name = _single_download_filename(task)
+            count = used_names.get(base_name, 0)
+            used_names[base_name] = count + 1
+            if count > 0:
+                stem = Path(base_name).stem
+                ext = Path(base_name).suffix or ".txt"
+                file_name = f"{stem}_{count + 1}{ext}"
+            else:
+                file_name = base_name
+            zf.writestr(file_name, task.result.full_output or "")
+            downloaded_tasks.append(task)
+            task_types.add(task.task_type.value)
+
+    if not downloaded_tasks:
+        raise HTTPException(status_code=400, detail="No downloadable tasks with full output.")
+
+    now = datetime.now(timezone.utc)
+    for task in downloaded_tasks:
+        assert task.result is not None
+        task.result.download_count = (task.result.download_count or 0) + 1
+        task.result.last_downloaded_at = now
+    db.commit()
+
+    zip_buffer.seek(0)
+    filename = _zip_download_filename(task_types)
+    headers = {"Content-Disposition": _content_disposition_header(filename)}
+    return Response(content=zip_buffer.getvalue(), media_type="application/zip", headers=headers)
+
+
+@router.get("/{task_id}/download")
+def download_task(task_id: int, db: Session = Depends(get_db)) -> Response:
+    stmt = select(Task).options(selectinload(Task.result)).where(Task.id == task_id)
+    task = db.execute(stmt).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    if not task.result or not (task.result.full_output or "").strip():
+        raise HTTPException(status_code=400, detail="No downloadable output for this task.")
+
+    file_name = _single_download_filename(task)
+    now = datetime.now(timezone.utc)
+    task.result.download_count = (task.result.download_count or 0) + 1
+    task.result.last_downloaded_at = now
+    db.commit()
+
+    headers = {"Content-Disposition": _content_disposition_header(file_name)}
+    return Response(content=(task.result.full_output or "").encode("utf-8"), media_type="text/plain; charset=utf-8", headers=headers)
 
 
 @router.get("/{task_id}", response_model=TaskDetailOut)
@@ -488,8 +616,8 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
     task = db.execute(stmt).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
-    book_name = None
-    if task.book_id is not None:
+    book_name = task.book_title_snapshot
+    if book_name is None and task.book_id is not None:
         book = db.get(Book, task.book_id)
         book_name = book.title if book else None
 
@@ -504,6 +632,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         prompt_id=task.prompt_id,
         prompt_name=task.prompt.name if task.prompt else None,
         llm_model=task.llm_model,
+        download_count=(task.result.download_count if task.result else 0),
         status=task.status.value,
         error_message=task.error_message,
         retry_count=task.retry_count,
@@ -547,8 +676,8 @@ def update_task_full_output(task_id: int, payload: TaskFullOutputUpdateIn, db: S
     db.refresh(task)
     if task.result:
         db.refresh(task.result)
-    book_name = None
-    if task.book_id is not None:
+    book_name = task.book_title_snapshot
+    if book_name is None and task.book_id is not None:
         book = db.get(Book, task.book_id)
         book_name = book.title if book else None
 
@@ -563,6 +692,7 @@ def update_task_full_output(task_id: int, payload: TaskFullOutputUpdateIn, db: S
         prompt_id=task.prompt_id,
         prompt_name=task.prompt.name if task.prompt else None,
         llm_model=task.llm_model,
+        download_count=(task.result.download_count if task.result else 0),
         status=task.status.value,
         error_message=task.error_message,
         retry_count=task.retry_count,

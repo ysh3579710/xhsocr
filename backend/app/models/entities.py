@@ -128,6 +128,7 @@ class Task(Base):
     batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("batches.id", ondelete="SET NULL"), nullable=True)
     folder_name: Mapped[str] = mapped_column(String(255), nullable=False)
     book_id: Mapped[Optional[int]] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=True)
+    book_title_snapshot: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     prompt_id: Mapped[Optional[int]] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
     prompt_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="openai/gpt-5-mini")
@@ -171,6 +172,8 @@ class TaskResult(Base):
     fixed_tags_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     random_tags_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     full_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    download_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_downloaded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 

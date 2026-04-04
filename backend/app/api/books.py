@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.deps import get_db
 from app.models.entities import Book, BookSegment, Task
-from app.schemas.books import BookOut, BookUploadOut
+from app.schemas.books import BookOut, BookUpdateIn, BookUploadOut
 from app.services.book_parser import parse_docx_text, segment_book
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -86,6 +86,21 @@ def list_books(db: Session = Depends(get_db)) -> list[BookOut]:
     )
     rows = db.execute(stmt).all()
     return [_book_to_out(book, int(segment_count)) for book, segment_count in rows]
+
+
+@router.patch("/{book_id}", response_model=BookOut)
+def update_book(book_id: int, payload: BookUpdateIn, db: Session = Depends(get_db)) -> BookOut:
+    book = db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found.")
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="书名不能为空。")
+    book.title = title
+    db.commit()
+    db.refresh(book)
+    segment_count = db.execute(select(func.count(BookSegment.id)).where(BookSegment.book_id == book.id)).scalar() or 0
+    return _book_to_out(book, int(segment_count))
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)

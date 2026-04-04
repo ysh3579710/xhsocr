@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../../lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, apiFetchResponse } from "../../../lib/api";
 import { Task, TaskDetail } from "../../../lib/types";
 import { formatBeijingDateTime } from "../../../lib/time";
 
@@ -18,6 +18,19 @@ export default function TaskDetailPage() {
   const [toast, setToast] = useState("");
   const [taskIds, setTaskIds] = useState<number[]>([]);
   const [editedFullOutput, setEditedFullOutput] = useState("");
+  const [showDetailBlocks, setShowDetailBlocks] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const dirtyRef = useRef(false);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    dirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  useEffect(() => {
+    editingRef.current = isEditing;
+  }, [isEditing]);
 
   function showToast(message: string) {
     setToast(message);
@@ -42,6 +55,55 @@ export default function TaskDetailPage() {
       showToast("复制成功");
     } catch {
       showToast("复制失败");
+    }
+  }
+
+  function getDownloadFilename(resp: Response, fallback: string): string {
+    const disposition = resp.headers.get("content-disposition") || "";
+    const mStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (mStar?.[1]) {
+      const raw = mStar[1].trim().replace(/^"|"$/g, "");
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    const m = disposition.match(/filename="?([^"]+)"?/i);
+    return m?.[1]?.trim() || fallback;
+  }
+
+  async function downloadCurrentTask() {
+    setLoading(true);
+    setError("");
+    try {
+      if (dirtyRef.current) {
+        const updated = await apiFetch<TaskDetail>(`/tasks/${taskId}/full-output`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ full_output: editedFullOutput }),
+        });
+        setDetail(updated);
+        setEditedFullOutput(updated.full_output || "");
+        setIsDirty(false);
+        showToast("已自动保存后下载");
+      }
+      const resp = await apiFetchResponse(`/tasks/${taskId}/download`);
+      const blob = await resp.blob();
+      const name = getDownloadFilename(resp, `task_${taskId}.txt`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      await loadDetailSilently();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -72,7 +134,9 @@ export default function TaskDetailPage() {
         apiFetch<Task[]>("/tasks")
       ]);
       setDetail(data);
-      setEditedFullOutput(data.full_output || "");
+      if (!dirtyRef.current && !editingRef.current) {
+        setEditedFullOutput(data.full_output || "");
+      }
       setTaskIds(list.map((t) => t.id));
       setAutoRefreshError("");
     } catch (e) {
@@ -95,6 +159,7 @@ export default function TaskDetailPage() {
 
     const tick = () => {
       if (document.hidden) return;
+      if (dirtyRef.current || editingRef.current) return;
       void loadDetailSilently();
     };
 
@@ -159,6 +224,7 @@ export default function TaskDetailPage() {
       });
       setDetail(updated);
       setEditedFullOutput(updated.full_output || "");
+      setIsDirty(false);
       showToast("保存成功");
     } catch (e) {
       setError((e as Error).message);
@@ -206,32 +272,53 @@ export default function TaskDetailPage() {
           </section>
 
           <section className="card">
-            <h2>OCR 原文</h2>
-            <textarea readOnly rows={6} value={detail.original_note_text || ""} />
-          </section>
-
-          <section className="card">
-            <h2>书稿匹配</h2>
-            <p>关键词：{(detail.matched_book_segments?.keywords || []).join("，") || "-"}</p>
-            {(detail.matched_book_segments?.top_segments || []).map((seg) => (
-              <div key={`${seg.segment_index}-${seg.score}`} className="segmentCard">
-                <p><strong>片段 {seg.segment_index}</strong> · score {seg.score.toFixed(3)}</p>
-                <p>{seg.content}</p>
-              </div>
-            ))}
-          </section>
-
-          <section className="card">
             <h2>AI 结果</h2>
             <div className="stack">
               <label>最终文本</label>
-              <textarea rows={8} value={editedFullOutput} onChange={(e) => setEditedFullOutput(e.target.value)} />
+              <textarea
+                rows={18}
+                value={editedFullOutput}
+                onFocus={() => setIsEditing(true)}
+                onBlur={() => setIsEditing(false)}
+                onChange={(e) => {
+                  setEditedFullOutput(e.target.value);
+                  setIsDirty(true);
+                }}
+              />
               <div className="actions">
                 <button onClick={() => void onSaveFullOutput()} disabled={loading}>保存</button>
                 <button onClick={() => void copyText(editedFullOutput)}>复制最终文本</button>
+                <button onClick={() => void downloadCurrentTask()} disabled={loading || !editedFullOutput.trim()}>
+                  {detail.download_count > 0 ? "重新下载" : "下载"}
+                </button>
+              </div>
+              <div className="actions">
+                <button type="button" className="linkBtn" onClick={() => setShowDetailBlocks((prev) => !prev)}>
+                  {showDetailBlocks ? "收起详情" : "展开详情"}
+                </button>
               </div>
             </div>
           </section>
+
+          {showDetailBlocks ? (
+            <>
+              <section className="card">
+                <h2>OCR 原文</h2>
+                <textarea readOnly rows={6} value={detail.original_note_text || ""} />
+              </section>
+
+              <section className="card">
+                <h2>书稿匹配</h2>
+                <p>关键词：{(detail.matched_book_segments?.keywords || []).join("，") || "-"}</p>
+                {(detail.matched_book_segments?.top_segments || []).map((seg) => (
+                  <div key={`${seg.segment_index}-${seg.score}`} className="segmentCard">
+                    <p><strong>片段 {seg.segment_index}</strong> · score {seg.score.toFixed(3)}</p>
+                    <p>{seg.content}</p>
+                  </div>
+                ))}
+              </section>
+            </>
+          ) : null}
         </>
       ) : null}
     </div>

@@ -15,3 +15,7 @@ class BookOut(BaseModel):
 
 class BookUploadOut(BookOut):
     pass
+
+
+class BookUpdateIn(BaseModel):
+    title: str

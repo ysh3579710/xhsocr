@@ -202,9 +202,31 @@ button:disabled {
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
+.trow8 {
+  grid-template-columns:
+    56px
+    64px
+    minmax(0, 1fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1fr)
+    100px
+    150px
+    minmax(360px, 1.8fr);
+}
+
 .thead {
   font-weight: 700;
   background: #fff8ef;
+}
+
+.thead > span,
+.trow > span {
+  min-width: 0;
+}
+
+.trow8 > span:not(.tableActionCell):not(.rowCheck) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .trow.clickable {
@@ -218,9 +240,28 @@ button:disabled {
 
 .actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.tableActionCell {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-start;
   flex-wrap: nowrap;
+}
+
+.rowCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rowCheck input {
+  width: 16px;
+  height: 16px;
 }
 
 .linkBtn {
@@ -406,6 +447,10 @@ button:disabled {
 
   .thead,
   .trow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .trow8 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 

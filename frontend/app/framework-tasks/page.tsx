@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, apiFetchResponse } from "../../lib/api";
 import { formatBeijingDateTime } from "../../lib/time";
 import { Book, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
 
@@ -64,6 +64,7 @@ export default function FrameworkTasksPage() {
   const [autoRefreshError, setAutoRefreshError] = useState("");
   const [modalToast, setModalToast] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
 
   const [createMode, setCreateMode] = useState<CreateMode>("paste");
   const [taskFiles, setTaskFiles] = useState<File[]>([]);
@@ -112,15 +113,71 @@ export default function FrameworkTasksPage() {
     () => pasteGroups.filter((g) => g.images.length > 0),
     [pasteGroups]
   );
-  const bookTitleById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const b of books) map.set(b.id, b.title);
-    return map;
-  }, [books]);
 
   function showModalToast(message: string) {
     setModalToast(message);
     window.setTimeout(() => setModalToast(""), 1800);
+  }
+
+  function getDownloadFilename(resp: Response, fallback: string): string {
+    const disposition = resp.headers.get("content-disposition") || "";
+    const mStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (mStar?.[1]) {
+      const raw = mStar[1].trim().replace(/^"|"$/g, "");
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    const m = disposition.match(/filename="?([^"]+)"?/i);
+    return m?.[1]?.trim() || fallback;
+  }
+
+  async function downloadSingleTask(task: Task) {
+    try {
+      const resp = await apiFetchResponse(`/tasks/${task.id}/download`);
+      const blob = await resp.blob();
+      const name = getDownloadFilename(resp, `framework_task_${task.id}.txt`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      await loadDataSilently();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function downloadBatchTasks() {
+    if (selectedTaskIds.length === 0) {
+      setError("请先勾选任务再批量下载。");
+      return;
+    }
+    try {
+      const resp = await apiFetchResponse("/tasks/download-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_ids: selectedTaskIds }),
+      });
+      const blob = await resp.blob();
+      const name = getDownloadFilename(resp, "xhsocr_export.zip");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      await loadDataSilently();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   async function loadData() {
@@ -173,6 +230,10 @@ export default function FrameworkTasksPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
+  }, [tasks]);
 
   useEffect(() => {
     const hasPending = tasks.some((t) => t.status === "waiting" || t.status === "processing");
@@ -524,6 +585,9 @@ export default function FrameworkTasksPage() {
           <p>图片OCR → 自动提取标题与分点 → 单提示词生成最终正文</p>
         </div>
         <div className="actions">
+          <button onClick={() => void downloadBatchTasks()} disabled={loading || selectedTaskIds.length === 0}>
+            批量下载（{selectedTaskIds.length}）
+          </button>
           <button onClick={openCreateModal}>创建任务</button>
           <button onClick={() => void loadData()} disabled={loading}>刷新</button>
         </div>
@@ -534,7 +598,8 @@ export default function FrameworkTasksPage() {
 
       <section className="card">
         <div className="table">
-          <div className="thead trow7">
+          <div className="thead trow8">
+            <span>选择</span>
             <span>ID</span>
             <span>任务名</span>
             <span>书稿名称</span>
@@ -544,15 +609,29 @@ export default function FrameworkTasksPage() {
             <span>操作</span>
           </div>
           {tasks.map((t) => (
-            <div key={t.id} className="trow trow7">
+            <div key={t.id} className="trow trow8">
+              <span className="rowCheck">
+                <input
+                  type="checkbox"
+                  checked={selectedTaskIds.includes(t.id)}
+                  onChange={(e) =>
+                    setSelectedTaskIds((prev) =>
+                      e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id)
+                    )
+                  }
+                />
+              </span>
               <span>{t.id}</span>
               <span>{t.folder_name}</span>
-              <span>{t.book_id ? (bookTitleById.get(t.book_id) || `ID:${t.book_id}`) : "-"}</span>
+              <span>{t.book_name || (t.book_id ? `ID:${t.book_id}` : "-")}</span>
               <span>{t.prompt_name || (t.prompt_id ? `ID:${t.prompt_id}` : "-")}</span>
               <span>{t.status}</span>
               <span>{formatBeijingDateTime(t.created_at)}</span>
-              <span className="actions">
+              <span className="tableActionCell">
                 <Link className="linkBtn" href={`/framework-tasks/${t.id}`}>详情</Link>
+                <button onClick={() => void downloadSingleTask(t)} disabled={loading}>
+                  {t.download_count > 0 ? "重新下载" : "下载"}
+                </button>
                 <button onClick={() => void onRetry(t.id, t.status)} disabled={loading}>重试</button>
                 <button onClick={() => void onDelete(t.id)} disabled={loading || t.status === "processing"}>删除</button>
               </span>

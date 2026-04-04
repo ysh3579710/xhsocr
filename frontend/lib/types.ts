@@ -18,6 +18,7 @@ export type Task = {
   prompt_id?: number | null;
   prompt_name?: string | null;
   llm_model: string;
+  download_count: number;
   status: string;
   error_message?: string | null;
   retry_count: number;

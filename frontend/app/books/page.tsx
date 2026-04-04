@@ -12,6 +12,8 @@ export default function BooksPage() {
   const [bookAuthor, setBookAuthor] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
 
   async function loadBooks() {
     setLoading(true);
@@ -65,6 +67,37 @@ export default function BooksPage() {
     }
   }
 
+  function openEdit(book: Book) {
+    setEditingBookId(book.id);
+    setEditingTitle(book.title);
+    setError("");
+  }
+
+  async function onSaveEdit() {
+    if (!editingBookId) return;
+    const title = editingTitle.trim();
+    if (!title) {
+      setError("书名不能为空。");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await apiFetch(`/books/${editingBookId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setEditingBookId(null);
+      setEditingTitle("");
+      await loadBooks();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="pageWrap">
       <header className="pageHeader">
@@ -100,7 +133,8 @@ export default function BooksPage() {
               <span>{b.title}</span>
               <span>{b.segment_count}</span>
               <span>{formatBeijingDateTime(b.created_at)}</span>
-              <span>
+              <span className="actions">
+                <button onClick={() => openEdit(b)} disabled={loading}>编辑</button>
                 <button onClick={() => void onDelete(b.id)} disabled={loading}>删除</button>
               </span>
             </div>
@@ -108,6 +142,27 @@ export default function BooksPage() {
           {books.length === 0 ? <p className="empty">暂无书稿</p> : null}
         </div>
       </section>
+
+      {editingBookId ? (
+        <div className="modalMask">
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="rowHeader">
+              <h2>编辑书名</h2>
+              <button onClick={() => setEditingBookId(null)} disabled={loading}>关闭</button>
+            </div>
+            <div className="stack">
+              <input
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                placeholder="请输入书名"
+              />
+              <div className="actions">
+                <button onClick={() => void onSaveEdit()} disabled={loading}>保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

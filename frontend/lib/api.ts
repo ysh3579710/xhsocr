@@ -11,3 +11,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   return (await resp.json()) as T;
 }
+
+export async function apiFetchResponse(path: string, init?: RequestInit): Promise<Response> {
+  const resp = await fetch(`${API_BASE}${path}`, init);
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `HTTP ${resp.status}`);
+  }
+  return resp;
+}
