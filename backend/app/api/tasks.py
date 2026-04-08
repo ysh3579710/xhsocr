@@ -20,6 +20,7 @@ from app.db.deps import get_db
 from app.models.entities import Batch, BatchType, Book, Prompt, Task, TaskImage, TaskLog, TaskResult, TaskStatus, TaskType
 from app.schemas.tasks import (
     CreateTaskBatchIn,
+    FrameworkCustomBatchIn,
     TaskBindingIn,
     TaskCreateOut,
     TaskDetailOut,
@@ -452,6 +453,111 @@ def create_framework_tasks(
                     )
                 )
         db.commit()
+    return TaskCreateOut(
+        batch_id=batch.id if batch else None,
+        task_ids=[task.id for task in created_tasks],
+        total_count=len(created_tasks),
+    )
+
+
+@router.post("/framework-custom", response_model=TaskCreateOut, status_code=status.HTTP_201_CREATED)
+def create_framework_custom_tasks(payload: FrameworkCustomBatchIn, db: Session = Depends(get_db)) -> TaskCreateOut:
+    normalized_tasks = []
+    book_ids: set[int] = set()
+    prompt_ids: set[int] = set()
+    for item in payload.tasks:
+        task_name = item.task_name.strip()
+        title = item.title.strip()
+        points = [line.strip() for line in item.points_text.splitlines() if line.strip()]
+        if not task_name:
+            raise HTTPException(status_code=400, detail="task_name cannot be empty.")
+        if not title:
+            raise HTTPException(status_code=400, detail="title cannot be empty.")
+        if not points:
+            raise HTTPException(status_code=400, detail="points_text must include at least one point.")
+        normalized_tasks.append((task_name, title, points, item.book_id, item.prompt_id))
+        book_ids.add(item.book_id)
+        prompt_ids.add(item.prompt_id)
+
+    books = db.execute(select(Book).where(Book.id.in_(book_ids))).scalars().all()
+    book_title_map = {b.id: b.title for b in books}
+    if set(book_title_map) != book_ids:
+        raise HTTPException(status_code=400, detail="Some book_id does not exist.")
+
+    prompts = db.execute(select(Prompt).where(Prompt.id.in_(prompt_ids))).scalars().all()
+    prompt_map = {p.id: p for p in prompts}
+    if set(prompt_map) != prompt_ids:
+        raise HTTPException(status_code=400, detail="Some prompt_id does not exist.")
+    disabled_prompts = [p.name for p in prompts if not p.enabled]
+    if disabled_prompts:
+        raise HTTPException(status_code=400, detail=f"Prompt is disabled and cannot be selected: {', '.join(disabled_prompts)}")
+
+    batch: Optional[Batch] = None
+    if len(normalized_tasks) > 1:
+        batch = Batch(
+            batch_name=(payload.batch_name or "批次").strip() or "批次",
+            batch_type=BatchType.framework,
+            total_count=len(normalized_tasks),
+            success_count=0,
+            failed_count=0,
+            status=TaskStatus.waiting,
+        )
+        db.add(batch)
+        db.flush()
+
+    created_tasks: list[Task] = []
+    for task_name, title, points, book_id, prompt_id in normalized_tasks:
+        prompt = prompt_map[prompt_id]
+        task = Task(
+            task_type=TaskType.framework,
+            title=title,
+            batch_id=batch.id if batch else None,
+            folder_name=task_name,
+            book_id=book_id,
+            book_title_snapshot=book_title_map.get(book_id),
+            prompt_id=prompt.id,
+            prompt_snapshot=prompt.content,
+            status=TaskStatus.waiting,
+        )
+        db.add(task)
+        created_tasks.append(task)
+    db.flush()
+
+    for task, (_, title, points, _, _) in zip(created_tasks, normalized_tasks):
+        points_text = "\n".join([f"{idx + 1}. {point}" for idx, point in enumerate(points)])
+        outline = f"大标题：{title}\n分点观点：\n{points_text}"
+        original_note_text = f"{title}\n" + "\n".join(points)
+        db.add(
+            TaskResult(
+                task_id=task.id,
+                original_note_text=original_note_text,
+                extracted_title=title,
+                extracted_points_text=points_text,
+                full_output=None,
+                rewritten_note=None,
+                matched_book_segments={"outline": outline},
+            )
+        )
+
+    db.commit()
+    for task in created_tasks:
+        db.refresh(task)
+
+    if payload.auto_enqueue:
+        for task in created_tasks:
+            try:
+                enqueue_task(task.id)
+            except Exception as exc:
+                db.add(
+                    TaskLog(
+                        task_id=task.id,
+                        stage="queue",
+                        level="error",
+                        message=f"Enqueue failed: {exc}",
+                    )
+                )
+        db.commit()
+
     return TaskCreateOut(
         batch_id=batch.id if batch else None,
         task_ids=[task.id for task in created_tasks],

@@ -6,7 +6,7 @@ import { apiFetch, apiFetchResponse } from "../../lib/api";
 import { formatBeijingDateTime } from "../../lib/time";
 import { Book, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
 
-type CreateMode = "folder" | "paste";
+type CreateMode = "folder" | "paste" | "custom";
 type UploadFile = File & { webkitRelativePath?: string };
 
 type PastedImage = {
@@ -21,6 +21,15 @@ type PastedGroup = {
   name: string;
   bookId?: number;
   images: PastedImage[];
+};
+
+type CustomGroup = {
+  id: string;
+  name: string;
+  title: string;
+  pointsText: string;
+  bookId?: number;
+  promptId?: number;
 };
 
 const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -55,6 +64,17 @@ function createEmptyPasteGroup(index: number, bookId?: number): PastedGroup {
   };
 }
 
+function createEmptyCustomGroup(index: number, bookId?: number, promptId?: number): CustomGroup {
+  return {
+    id: createId(),
+    name: `任务-${index}`,
+    title: "",
+    pointsText: "",
+    bookId,
+    promptId,
+  };
+}
+
 export default function FrameworkTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
@@ -75,6 +95,8 @@ export default function FrameworkTasksPage() {
 
   const [pasteGroups, setPasteGroups] = useState<PastedGroup[]>([createEmptyPasteGroup(1)]);
   const [activeGroupId, setActiveGroupId] = useState<string>("");
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
+  const [activeCustomGroupId, setActiveCustomGroupId] = useState<string>("");
   const pasteZoneRef = useRef<HTMLDivElement | null>(null);
   const pasteSeqRef = useRef(0);
 
@@ -84,9 +106,20 @@ export default function FrameworkTasksPage() {
     }
   }, [activeGroupId, pasteGroups]);
 
+  useEffect(() => {
+    if (!activeCustomGroupId && customGroups.length > 0) {
+      setActiveCustomGroupId(customGroups[0].id);
+    }
+  }, [activeCustomGroupId, customGroups]);
+
   const activePasteGroup = useMemo(
     () => pasteGroups.find((g) => g.id === activeGroupId) || null,
     [pasteGroups, activeGroupId]
+  );
+
+  const activeCustomGroup = useMemo(
+    () => customGroups.find((g) => g.id === activeCustomGroupId) || null,
+    [customGroups, activeCustomGroupId]
   );
 
   const folderNames = useMemo(() => {
@@ -106,12 +139,18 @@ export default function FrameworkTasksPage() {
 
   const hasUnsavedCreateData = useMemo(() => {
     if (taskFiles.length > 0) return true;
-    return pasteGroups.some((g) => g.images.length > 0);
-  }, [taskFiles, pasteGroups]);
+    if (pasteGroups.some((g) => g.images.length > 0)) return true;
+    return customGroups.some((g) => g.title.trim() || g.pointsText.trim());
+  }, [taskFiles, pasteGroups, customGroups]);
 
   const submitReadyGroups = useMemo(
     () => pasteGroups.filter((g) => g.images.length > 0),
     [pasteGroups]
+  );
+
+  const submitReadyCustomGroups = useMemo(
+    () => customGroups.filter((g) => g.title.trim() || g.pointsText.trim()),
+    [customGroups]
   );
 
   function showModalToast(message: string) {
@@ -269,6 +308,9 @@ export default function FrameworkTasksPage() {
     const first = createEmptyPasteGroup(1);
     setPasteGroups([first]);
     setActiveGroupId(first.id);
+    const firstCustom = createEmptyCustomGroup(1, undefined, prompts[0]?.id);
+    setCustomGroups([firstCustom]);
+    setActiveCustomGroupId(firstCustom.id);
     pasteSeqRef.current = 0;
   }
 
@@ -365,10 +407,16 @@ export default function FrameworkTasksPage() {
     setError("");
   }
 
-  function onCreateNextGroup(defaultBookId?: number) {
+  function onCreateNextPasteGroup(defaultBookId?: number) {
     const next = createEmptyPasteGroup(pasteGroups.length + 1, defaultBookId);
     setPasteGroups((prev) => [...prev, next]);
     setActiveGroupId(next.id);
+  }
+
+  function onCreateNextCustomGroup(defaultBookId?: number, defaultPromptId?: number) {
+    const next = createEmptyCustomGroup(customGroups.length + 1, defaultBookId, defaultPromptId);
+    setCustomGroups((prev) => [...prev, next]);
+    setActiveCustomGroupId(next.id);
   }
 
   function onCompleteCurrentGroup() {
@@ -381,7 +429,28 @@ export default function FrameworkTasksPage() {
       showModalToast("请上传图片后再创建下一组。");
       return;
     }
-    onCreateNextGroup(activePasteGroup.bookId);
+    onCreateNextPasteGroup(activePasteGroup.bookId);
+  }
+
+  function onCompleteCurrentCustomGroup() {
+    if (!activeCustomGroup) return;
+    if (!activeCustomGroup.bookId) {
+      showModalToast("需要绑定书稿才能创建下一组。");
+      return;
+    }
+    if (!activeCustomGroup.promptId) {
+      showModalToast("需要选择提示词才能创建下一组。");
+      return;
+    }
+    if (!activeCustomGroup.title.trim()) {
+      showModalToast("请填写标题后再创建下一组。");
+      return;
+    }
+    if (!activeCustomGroup.pointsText.split("\n").some((line) => line.trim())) {
+      showModalToast("请填写分点观点后再创建下一组。");
+      return;
+    }
+    onCreateNextCustomGroup(activeCustomGroup.bookId, activeCustomGroup.promptId);
   }
 
   function updateGroupName(groupId: string, name: string) {
@@ -390,6 +459,10 @@ export default function FrameworkTasksPage() {
 
   function updateGroupBook(groupId: string, bookId: number) {
     setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, bookId } : g)));
+  }
+
+  function updateCustomGroup(groupId: string, patch: Partial<CustomGroup>) {
+    setCustomGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
   }
 
   function removeGroup(groupId: string) {
@@ -405,6 +478,19 @@ export default function FrameworkTasksPage() {
         return [first];
       }
       if (groupId === activeGroupId) setActiveGroupId(next[0].id);
+      return next;
+    });
+  }
+
+  function removeCustomGroup(groupId: string) {
+    setCustomGroups((prev) => {
+      const next = prev.filter((g) => g.id !== groupId);
+      if (next.length === 0) {
+        const first = createEmptyCustomGroup(1, undefined, prompts[0]?.id);
+        setActiveCustomGroupId(first.id);
+        return [first];
+      }
+      if (groupId === activeCustomGroupId) setActiveCustomGroupId(next[0].id);
       return next;
     });
   }
@@ -555,6 +641,58 @@ export default function FrameworkTasksPage() {
     return true;
   }
 
+  async function submitCustomTasks(): Promise<boolean> {
+    const groups = customGroups;
+    if (groups.length === 0) {
+      showModalToast("请先填写任务后再提交");
+      return false;
+    }
+    const validateGroup = (group: CustomGroup) => {
+      if (!group.bookId) {
+        showModalToast("请先绑定书稿后再提交");
+        return false;
+      }
+      if (!group.promptId) {
+        showModalToast("请选择提示词后再提交");
+        return false;
+      }
+      if (!group.title.trim()) {
+        showModalToast("请填写标题后再提交");
+        return false;
+      }
+      if (!group.pointsText.split("\n").some((line) => line.trim())) {
+        showModalToast("请填写分点观点后再提交");
+        return false;
+      }
+      return true;
+    };
+
+    if (groups.length === 1) {
+      if (!validateGroup(groups[0])) return false;
+    } else {
+      const lastGroup = groups[groups.length - 1];
+      if (!validateGroup(lastGroup)) return false;
+    }
+
+    await apiFetch<TaskCreateResponse>("/tasks/framework-custom", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batch_name: batchName || "批次",
+        auto_enqueue: true,
+        prompt_id: groups[0]?.promptId || promptId || undefined,
+        tasks: groups.map((group) => ({
+          task_name: group.name,
+          title: group.title,
+          points_text: group.pointsText,
+          book_id: group.bookId,
+          prompt_id: group.promptId,
+        })),
+      }),
+    });
+    return true;
+  }
+
   async function onCreateTask(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -563,8 +701,10 @@ export default function FrameworkTasksPage() {
       let ok = false;
       if (createMode === "folder") {
         ok = await submitFolderTasks();
-      } else {
+      } else if (createMode === "paste") {
         ok = await submitPasteTasks();
+      } else {
+        ok = await submitCustomTasks();
       }
       if (!ok) return;
       resetCreateForm();
@@ -665,18 +805,27 @@ export default function FrameworkTasksPage() {
               >
                 目录上传
               </button>
+              <button
+                type="button"
+                className={createMode === "custom" ? "modeBtn active" : "modeBtn"}
+                onClick={() => switchCreateMode("custom")}
+              >
+                自定义上传
+              </button>
             </div>
 
             <form onSubmit={onCreateTask} className="stack">
               <input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="批次名（多组提交时生效）" />
-              <select value={promptId} onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">选择提示词（必选）</option>
-                {prompts.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    [{p.track}] {p.name}
-                  </option>
-                ))}
-              </select>
+              {createMode !== "custom" ? (
+                <select value={promptId} onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}>
+                  <option value="">选择提示词（必选）</option>
+                  {prompts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      [{p.track}] {p.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
 
               {createMode === "folder" ? (
                 <>
@@ -725,7 +874,7 @@ export default function FrameworkTasksPage() {
                     </div>
                   ))}
                 </>
-              ) : (
+              ) : createMode === "paste" ? (
                 <div className="stack">
                   <div className="pasteGroupList">
                     {pasteGroups.map((group) => (
@@ -793,6 +942,80 @@ export default function FrameworkTasksPage() {
                         <p className="empty">当前组暂无图片，请先粘贴。</p>
                       )}
                       <p className="empty">可提交分组数：{submitReadyGroups.length}</p>
+                    </>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="stack">
+                  <div className="pasteGroupList">
+                    {customGroups.map((group) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        className={group.id === activeCustomGroupId ? "groupChip active" : "groupChip"}
+                        onClick={() => setActiveCustomGroupId(group.id)}
+                      >
+                        {group.name || "未命名任务"}
+                      </button>
+                    ))}
+                  </div>
+                  {activeCustomGroup ? (
+                    <>
+                      <div className="bindRow">
+                        <span>任务名称</span>
+                        <input
+                          value={activeCustomGroup.name}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { name: e.target.value })}
+                          placeholder="可手动修改任务名"
+                        />
+                      </div>
+                      <div className="bindRow">
+                        <span>绑定书稿</span>
+                        <select
+                          value={activeCustomGroup.bookId || ""}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { bookId: Number(e.target.value) })}
+                        >
+                          <option value="">选择书稿</option>
+                          {books.map((book) => (
+                            <option key={book.id} value={book.id}>
+                              {book.id} - {book.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="bindRow">
+                        <span>提示词</span>
+                        <select
+                          value={activeCustomGroup.promptId || ""}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { promptId: Number(e.target.value) })}
+                        >
+                          <option value="">选择提示词</option>
+                          {prompts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              [{p.track}] {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="bindRow">
+                        <span>标题</span>
+                        <input
+                          value={activeCustomGroup.title}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { title: e.target.value })}
+                          placeholder="请输入标题"
+                        />
+                      </div>
+                      <textarea
+                        rows={10}
+                        value={activeCustomGroup.pointsText}
+                        onChange={(e) => updateCustomGroup(activeCustomGroup.id, { pointsText: e.target.value })}
+                        placeholder={"请输入分点观点，一行一个分点"}
+                      />
+                      <div className="actions">
+                        <button type="button" onClick={onCompleteCurrentCustomGroup} disabled={loading}>完成本组并新建下一组</button>
+                        <button type="button" onClick={() => removeCustomGroup(activeCustomGroup.id)} disabled={loading}>删除本组</button>
+                      </div>
+                      <p className="empty">可提交任务数：{submitReadyCustomGroups.length}</p>
                     </>
                   ) : null}
                 </div>

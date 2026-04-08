@@ -23,6 +23,20 @@ class CreateTaskBatchIn(BaseModel):
     auto_enqueue: bool = True
 
 
+class FrameworkCustomTaskIn(BaseModel):
+    task_name: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    points_text: str = Field(min_length=1)
+    book_id: int
+    prompt_id: int
+
+
+class FrameworkCustomBatchIn(BaseModel):
+    tasks: list[FrameworkCustomTaskIn] = Field(min_length=1)
+    batch_name: Optional[str] = "batch"
+    auto_enqueue: bool = True
+
+
 class TaskItemOut(BaseModel):
     id: int
     task_type: str

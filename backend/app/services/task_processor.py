@@ -194,62 +194,70 @@ def process_task(task_id: int) -> None:
             .scalars()
             .all()
         )
-        if not images:
+        result = db.get(TaskResult, task_id)
+        is_framework_custom = task.task_type == TaskType.framework and not images
+
+        if not images and not is_framework_custom:
             raise RuntimeError("No images found for task.")
 
-        task_root = Path(settings.task_root)
-        missing = []
-        for image in images:
-            if not (task_root / image.file_path).exists():
-                missing.append(image.file_name)
-        if missing:
-            raise RuntimeError(f"Task image files missing: {', '.join(missing)}")
-
-        ocr_service = get_ocr_service()
-        if ocr_service.configured_provider == "paddleocr" and ocr_service.provider == "mock":
-            _log_and_commit(
-                db,
-                task,
-                "ocr",
-                "warning",
-                ocr_service.downgrade_reason
-                or "OCR provider auto-downgraded to mock due to runtime compatibility policy.",
-            )
-
-        ocr_outputs = []
-        total_images = len(images)
-        for idx, image in enumerate(images, start=1):
-            image_path = task_root / image.file_path
-            _log_and_commit(
-                db,
-                task,
-                "ocr",
-                "info",
-                f"OCR start {idx}/{total_images}: {image.file_name}",
-            )
-            started = time.perf_counter()
-            try:
-                text = extract_text_with_timeout(image_path, settings.ocr_timeout_seconds)
-            except Exception as exc:
-                raise RuntimeError(f"OCR failed on `{image.file_name}`: {exc}") from exc
-            ocr_outputs.append(text)
-            elapsed = time.perf_counter() - started
-            _log_and_commit(
-                db,
-                task,
-                "ocr",
-                "info",
-                f"OCR done {idx}/{total_images}: {image.file_name} ({elapsed:.2f}s, {len(text)} chars)",
-            )
-
-        result = db.get(TaskResult, task_id)
         if not result:
             result = TaskResult(task_id=task_id)
             db.add(result)
 
-        # Keep raw OCR output: no auto-cleanup/no correction.
-        original_note_text = "\n".join(ocr_outputs)
-        result.original_note_text = original_note_text
+        if is_framework_custom:
+            original_note_text = (result.original_note_text or "").strip()
+            if not original_note_text:
+                raise RuntimeError("自定义上传缺少标题或分点观点。")
+            _log_and_commit(db, task, "input", "info", "Using custom title and points input.")
+        else:
+            task_root = Path(settings.task_root)
+            missing = []
+            for image in images:
+                if not (task_root / image.file_path).exists():
+                    missing.append(image.file_name)
+            if missing:
+                raise RuntimeError(f"Task image files missing: {', '.join(missing)}")
+
+            ocr_service = get_ocr_service()
+            if ocr_service.configured_provider == "paddleocr" and ocr_service.provider == "mock":
+                _log_and_commit(
+                    db,
+                    task,
+                    "ocr",
+                    "warning",
+                    ocr_service.downgrade_reason
+                    or "OCR provider auto-downgraded to mock due to runtime compatibility policy.",
+                )
+
+            ocr_outputs = []
+            total_images = len(images)
+            for idx, image in enumerate(images, start=1):
+                image_path = task_root / image.file_path
+                _log_and_commit(
+                    db,
+                    task,
+                    "ocr",
+                    "info",
+                    f"OCR start {idx}/{total_images}: {image.file_name}",
+                )
+                started = time.perf_counter()
+                try:
+                    text = extract_text_with_timeout(image_path, settings.ocr_timeout_seconds)
+                except Exception as exc:
+                    raise RuntimeError(f"OCR failed on `{image.file_name}`: {exc}") from exc
+                ocr_outputs.append(text)
+                elapsed = time.perf_counter() - started
+                _log_and_commit(
+                    db,
+                    task,
+                    "ocr",
+                    "info",
+                    f"OCR done {idx}/{total_images}: {image.file_name} ({elapsed:.2f}s, {len(text)} chars)",
+                )
+
+            # Keep raw OCR output: no auto-cleanup/no correction.
+            original_note_text = "\n".join(ocr_outputs)
+            result.original_note_text = original_note_text
 
         segments = (
             db.execute(
@@ -277,10 +285,18 @@ def process_task(task_id: int) -> None:
         llm = LLMClient(model=task.llm_model)
 
         if task.task_type == TaskType.framework:
-            title, points_text, outline = _extract_outline_with_internal_prompt(llm, original_note_text)
-            result.extracted_title = title
-            result.extracted_points_text = points_text
-            _log_and_commit(db, task, "extract", "info", "Outline extraction finished.")
+            if is_framework_custom:
+                title = (result.extracted_title or task.title or "").strip()
+                points_text = (result.extracted_points_text or "").strip()
+                if not title or not points_text:
+                    raise RuntimeError("自定义上传缺少标题或分点观点。")
+                outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
+                _log_and_commit(db, task, "extract", "info", "Using custom outline input.")
+            else:
+                title, points_text, outline = _extract_outline_with_internal_prompt(llm, original_note_text)
+                result.extracted_title = title
+                result.extracted_points_text = points_text
+                _log_and_commit(db, task, "extract", "info", "Outline extraction finished.")
             final_prompt = render_prompt_template(
                 task.prompt_snapshot,
                 {
