@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.batches import router as batches_router
 from app.api.books import router as books_router
+from app.api.featured_notes import router as featured_notes_router
 from app.api.health import router as health_router
 from app.api.prompts import router as prompts_router
 from app.api.tags import router as tags_router
@@ -28,6 +29,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(books_router)
+app.include_router(featured_notes_router)
 app.include_router(tags_router)
 app.include_router(tasks_router)
 app.include_router(batches_router)

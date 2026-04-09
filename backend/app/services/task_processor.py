@@ -195,20 +195,25 @@ def process_task(task_id: int) -> None:
             .all()
         )
         result = db.get(TaskResult, task_id)
-        is_framework_custom = task.task_type == TaskType.framework and not images
+        has_text_input = bool((result.original_note_text or "").strip()) if result else False
+        is_text_only_rewrite = task.task_type == TaskType.ocr and not images and has_text_input
+        is_text_only_framework = task.task_type == TaskType.framework and not images and has_text_input
 
-        if not images and not is_framework_custom:
+        if not images and not is_text_only_rewrite and not is_text_only_framework:
             raise RuntimeError("No images found for task.")
 
         if not result:
             result = TaskResult(task_id=task_id)
             db.add(result)
 
-        if is_framework_custom:
+        if is_text_only_rewrite or is_text_only_framework:
             original_note_text = (result.original_note_text or "").strip()
             if not original_note_text:
-                raise RuntimeError("自定义上传缺少标题或分点观点。")
-            _log_and_commit(db, task, "input", "info", "Using custom title and points input.")
+                raise RuntimeError("缺少可用原文输入。")
+            if is_text_only_framework:
+                _log_and_commit(db, task, "input", "info", "Using text-only framework input.")
+            else:
+                _log_and_commit(db, task, "input", "info", "Using text-only rewrite input.")
         else:
             task_root = Path(settings.task_root)
             missing = []
@@ -285,13 +290,13 @@ def process_task(task_id: int) -> None:
         llm = LLMClient(model=task.llm_model)
 
         if task.task_type == TaskType.framework:
-            if is_framework_custom:
+            if is_text_only_framework and (result.extracted_title or "").strip() and (result.extracted_points_text or "").strip():
                 title = (result.extracted_title or task.title or "").strip()
                 points_text = (result.extracted_points_text or "").strip()
                 if not title or not points_text:
-                    raise RuntimeError("自定义上传缺少标题或分点观点。")
+                    raise RuntimeError("框架任务缺少标题或分点观点。")
                 outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
-                _log_and_commit(db, task, "extract", "info", "Using custom outline input.")
+                _log_and_commit(db, task, "extract", "info", "Using structured outline snapshot.")
             else:
                 title, points_text, outline = _extract_outline_with_internal_prompt(llm, original_note_text)
                 result.extracted_title = title

@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.db.deps import get_db
-from app.models.entities import Batch, BatchType, Book, Prompt, Task, TaskImage, TaskLog, TaskResult, TaskStatus, TaskType
+from app.models.entities import Batch, BatchType, Book, FeaturedNote, Prompt, Task, TaskImage, TaskLog, TaskResult, TaskStatus, TaskType
+from app.schemas.featured_notes import FeaturedNoteOut
 from app.schemas.tasks import (
     CreateTaskBatchIn,
     FrameworkCustomBatchIn,
@@ -86,15 +87,43 @@ def _content_disposition_header(file_name: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
+def _first_nonempty_line(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    for line in normalized.split("\n"):
+        text = line.strip()
+        if text:
+            return text[:255]
+    return None
+
+
+def _task_display_title(task: Task) -> str | None:
+    if task.task_type == TaskType.create:
+        return (task.title or "").strip()[:255] or _first_nonempty_line(task.result.full_output if task.result else None)
+    if task.task_type == TaskType.framework:
+        if task.result and task.result.extracted_title:
+            return task.result.extracted_title.strip()[:255] or None
+        return ((task.title or "").strip()[:255] or None) or _first_nonempty_line(task.result.full_output if task.result else None)
+    return _first_nonempty_line(task.result.full_output if task.result else None)
+
+
 def _task_to_item(task: Task, db: Session) -> TaskItemOut:
     book_name = task.book_title_snapshot
     if book_name is None and task.book_id is not None:
         book = db.get(Book, task.book_id)
         book_name = book.title if book else None
+    featured = db.execute(
+        select(FeaturedNote).where(
+            FeaturedNote.source_task_type == task.task_type.value,
+            FeaturedNote.source_task_id == task.id,
+        )
+    ).scalar_one_or_none()
     return TaskItemOut(
         id=task.id,
         task_type=task.task_type.value,
         title=task.title,
+        display_title=_task_display_title(task),
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,
@@ -106,8 +135,43 @@ def _task_to_item(task: Task, db: Session) -> TaskItemOut:
         status=task.status.value,
         error_message=task.error_message,
         retry_count=task.retry_count,
+        featured_note_id=featured.id if featured else None,
+        is_featured=featured is not None,
         created_at=task.created_at,
     )
+
+
+def _featured_note_out(note: FeaturedNote) -> FeaturedNoteOut:
+    return FeaturedNoteOut(
+        id=note.id,
+        source_task_type=note.source_task_type,
+        source_task_id=note.source_task_id,
+        title=note.title,
+        full_text=note.full_text,
+        is_manual=note.is_manual,
+        structured_title=note.structured_title,
+        structured_points_text=note.structured_points_text,
+        structured_outline=note.structured_outline,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
+    )
+
+
+def _extract_feature_title(task: Task) -> str:
+    if task.task_type == TaskType.create and task.title:
+        return task.title.strip()[:255]
+    full_output = (task.result.full_output if task.result else "") or ""
+    normalized = full_output.replace("\r\n", "\n").replace("\r", "\n").strip()
+    first_line = normalized.split("\n", 1)[0].strip() if normalized else ""
+    if not first_line:
+        raise HTTPException(status_code=400, detail="最终文本第一行为空，无法加入精选。")
+    return first_line[:255]
+
+
+def _build_framework_outline(task: Task) -> str | None:
+    if not task.result or not task.result.extracted_title or not task.result.extracted_points_text:
+        return None
+    return f"大标题：{task.result.extracted_title}\n分点观点：\n{task.result.extracted_points_text}"
 
 
 def _extract_folder_name(filename: str) -> str:
@@ -722,6 +786,12 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
     task = db.execute(stmt).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
+    featured = db.execute(
+        select(FeaturedNote).where(
+            FeaturedNote.source_task_type == task.task_type.value,
+            FeaturedNote.source_task_id == task.id,
+        )
+    ).scalar_one_or_none()
     book_name = task.book_title_snapshot
     if book_name is None and task.book_id is not None:
         book = db.get(Book, task.book_id)
@@ -731,6 +801,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         id=task.id,
         task_type=task.task_type.value,
         title=task.title,
+        display_title=_task_display_title(task),
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,
@@ -742,6 +813,8 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         status=task.status.value,
         error_message=task.error_message,
         retry_count=task.retry_count,
+        featured_note_id=featured.id if featured else None,
+        is_featured=featured is not None,
         created_at=task.created_at,
         images=[
             TaskImageOut(
@@ -758,6 +831,62 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
         extracted_points_text=task.result.extracted_points_text if task.result else None,
         full_output=task.result.full_output if task.result else None,
     )
+
+
+@router.post("/{task_id}/feature", response_model=FeaturedNoteOut, status_code=status.HTTP_201_CREATED)
+def feature_task(task_id: int, db: Session = Depends(get_db)) -> FeaturedNoteOut:
+    stmt = select(Task).options(selectinload(Task.result)).where(Task.id == task_id)
+    task = db.execute(stmt).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    if task.status != TaskStatus.success:
+        raise HTTPException(status_code=400, detail="仅成功任务可以加入精选。")
+    if not task.result or not (task.result.full_output or "").strip():
+        raise HTTPException(status_code=400, detail="任务缺少最终文本，无法加入精选。")
+
+    existing = db.execute(
+        select(FeaturedNote).where(
+            FeaturedNote.source_task_type == task.task_type.value,
+            FeaturedNote.source_task_id == task.id,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return _featured_note_out(existing)
+
+    structured_title = None
+    structured_points_text = None
+    structured_outline = None
+    if task.task_type == TaskType.framework and task.result:
+        structured_title = task.result.extracted_title
+        structured_points_text = task.result.extracted_points_text
+        structured_outline = _build_framework_outline(task)
+
+    note = FeaturedNote(
+        source_task_type=task.task_type.value,
+        source_task_id=task.id,
+        title=_extract_feature_title(task),
+        full_text=task.result.full_output or "",
+        is_manual=False,
+        structured_title=structured_title,
+        structured_points_text=structured_points_text,
+        structured_outline=structured_outline,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return _featured_note_out(note)
+
+
+@router.delete("/{task_id}/feature", status_code=status.HTTP_204_NO_CONTENT)
+def unfeature_task(task_id: int, db: Session = Depends(get_db)) -> Response:
+    note = db.execute(
+        select(FeaturedNote).where(FeaturedNote.source_task_id == task_id)
+    ).scalar_one_or_none()
+    if not note:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    db.delete(note)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{task_id}/full-output", response_model=TaskDetailOut)
@@ -791,6 +920,7 @@ def update_task_full_output(task_id: int, payload: TaskFullOutputUpdateIn, db: S
         id=task.id,
         task_type=task.task_type.value,
         title=task.title,
+        display_title=_task_display_title(task),
         batch_id=task.batch_id,
         folder_name=task.folder_name,
         book_id=task.book_id,

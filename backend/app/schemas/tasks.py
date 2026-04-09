@@ -41,6 +41,7 @@ class TaskItemOut(BaseModel):
     id: int
     task_type: str
     title: Optional[str]
+    display_title: Optional[str] = None
     batch_id: Optional[int]
     folder_name: str
     book_id: Optional[int]
@@ -52,6 +53,8 @@ class TaskItemOut(BaseModel):
     status: str
     error_message: Optional[str]
     retry_count: int
+    featured_note_id: Optional[int] = None
+    is_featured: bool = False
     created_at: datetime
 
 

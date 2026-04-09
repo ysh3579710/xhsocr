@@ -99,6 +99,27 @@ class Prompt(Base):
     tasks = relationship("Task", back_populates="prompt")
 
 
+class FeaturedNote(Base):
+    __tablename__ = "featured_notes"
+    __table_args__ = (
+        UniqueConstraint("source_task_type", "source_task_id", name="uq_featured_notes_source_task"),
+        Index("ix_featured_notes_title", "title"),
+        Index("ix_featured_notes_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_task_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    source_task_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    structured_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    structured_points_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    structured_outline: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class Batch(Base):
     __tablename__ = "batches"
 

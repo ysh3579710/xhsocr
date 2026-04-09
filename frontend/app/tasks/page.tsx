@@ -59,6 +59,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
@@ -114,6 +115,16 @@ export default function TasksPage() {
     () => pasteGroups.filter((g) => g.images.length > 0),
     [pasteGroups]
   );
+
+  const filteredTasks = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return tasks;
+    return tasks.filter((task) => {
+      const title = (task.display_title || "").toLowerCase();
+      const taskName = (task.folder_name || "").toLowerCase();
+      return title.includes(q) || taskName.includes(q);
+    });
+  }, [tasks, keyword]);
 
   function showModalToast(message: string) {
     setModalToast(message);
@@ -324,6 +335,22 @@ export default function TasksPage() {
     setError("");
     try {
       await apiFetch(`/tasks/${taskId}`, { method: "DELETE" });
+      await loadData();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onToggleFeatured(task: Task) {
+    if (task.status !== "success") return;
+    setLoading(true);
+    setError("");
+    try {
+      await apiFetch(`/tasks/${task.id}/feature`, {
+        method: task.is_featured ? "DELETE" : "POST",
+      });
       await loadData();
     } catch (e) {
       setError((e as Error).message);
@@ -598,6 +625,13 @@ export default function TasksPage() {
       {autoRefreshError ? <div className="errorBox">{autoRefreshError}</div> : null}
 
       <section className="card">
+        <div className="toolbarRow">
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="按标题搜索任务"
+          />
+        </div>
         <div className="table">
           <div className="thead trow8">
             <span>选择</span>
@@ -609,7 +643,7 @@ export default function TasksPage() {
             <span>创建时间</span>
             <span>操作</span>
           </div>
-          {tasks.map((t) => (
+          {filteredTasks.map((t) => (
             <div key={t.id} className="trow trow8">
               <span className="rowCheck">
                 <input
@@ -630,6 +664,11 @@ export default function TasksPage() {
               <span>{formatBeijingDateTime(t.created_at)}</span>
               <span className="tableActionCell">
                 <Link className="linkBtn" href={`/tasks/${t.id}`}>详情</Link>
+                {t.status === "success" ? (
+                  <button onClick={() => void onToggleFeatured(t)} disabled={loading}>
+                    {t.is_featured ? "已精选" : "精选"}
+                  </button>
+                ) : null}
                 <button onClick={() => void downloadSingleTask(t)} disabled={loading}>
                   {t.download_count > 0 ? "重新下载" : "下载"}
                 </button>
@@ -638,7 +677,7 @@ export default function TasksPage() {
               </span>
             </div>
           ))}
-          {tasks.length === 0 ? <p className="empty">暂无任务</p> : null}
+          {filteredTasks.length === 0 ? <p className="empty">{tasks.length === 0 ? "暂无任务" : "没有匹配的任务"}</p> : null}
         </div>
       </section>
 

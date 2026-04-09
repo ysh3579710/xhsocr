@@ -233,6 +233,22 @@ export default function CreateTaskDetailPage() {
     }
   }
 
+  async function onToggleFeatured() {
+    if (!detail || detail.status !== "success") return;
+    setLoading(true);
+    setError("");
+    try {
+      await apiFetch(`/tasks/${taskId}/feature`, {
+        method: detail.is_featured ? "DELETE" : "POST",
+      });
+      await loadDetail();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="pageWrap">
       <header className="pageHeader rowHeader">
@@ -245,6 +261,11 @@ export default function CreateTaskDetailPage() {
           <button onClick={() => router.push(`/create-tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
           <button onClick={() => router.push(`/create-tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
+          {detail?.status === "success" ? (
+            <button onClick={() => void onToggleFeatured()} disabled={loading}>
+              {detail.is_featured ? "已精选" : "精选"}
+            </button>
+          ) : null}
           <button onClick={() => void onRetry()} disabled={loading}>重试</button>
           <button onClick={() => void onDelete()} disabled={loading || detail?.status === "processing"}>删除任务</button>
         </div>

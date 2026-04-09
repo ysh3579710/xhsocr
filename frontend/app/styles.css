@@ -214,6 +214,15 @@ button:disabled {
     minmax(360px, 1.8fr);
 }
 
+.trow5 {
+  grid-template-columns:
+    72px
+    160px
+    minmax(0, 1.6fr)
+    180px
+    220px;
+}
+
 .thead {
   font-weight: 700;
   background: #fff8ef;
@@ -243,6 +252,10 @@ button:disabled {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.toolbarRow {
+  margin-bottom: 12px;
 }
 
 .tableActionCell {
@@ -279,6 +292,12 @@ button:disabled {
 .empty {
   color: var(--muted);
   margin: 10px 0 0;
+}
+
+.helperText {
+  margin: 0 0 10px;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .bindRow {

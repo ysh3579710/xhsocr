@@ -11,6 +11,7 @@ export type Task = {
   id: number;
   task_type: string;
   title?: string | null;
+  display_title?: string | null;
   batch_id?: number | null;
   folder_name: string;
   book_id?: number | null;
@@ -22,6 +23,8 @@ export type Task = {
   status: string;
   error_message?: string | null;
   retry_count: number;
+  featured_note_id?: number | null;
+  is_featured?: boolean;
   created_at: string;
 };
 
@@ -79,4 +82,18 @@ export type FixedTagsConfig = {
 export type LLMModelConfig = {
   active_model: string;
   supported_models: string[];
+};
+
+export type FeaturedNote = {
+  id: number;
+  source_task_type?: string | null;
+  source_task_id?: number | null;
+  title: string;
+  full_text: string;
+  is_manual: boolean;
+  structured_title?: string | null;
+  structured_points_text?: string | null;
+  structured_outline?: string | null;
+  created_at: string;
+  updated_at: string;
 };
