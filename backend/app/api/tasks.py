@@ -635,12 +635,10 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
     if not titles:
         raise HTTPException(status_code=400, detail="At least one valid title is required.")
 
-    book_title_snapshot = None
-    if payload.book_id is not None:
-        book = db.get(Book, payload.book_id)
-        if not book:
-            raise HTTPException(status_code=400, detail="book_id not found.")
-        book_title_snapshot = book.title
+    book = db.get(Book, payload.book_id)
+    if not book:
+        raise HTTPException(status_code=400, detail="请先绑定书稿后再提交")
+    book_title_snapshot = book.title
 
     prompt = db.get(Prompt, payload.prompt_id)
     if not prompt:

@@ -17,7 +17,7 @@ class TaskCreateOut(BaseModel):
 
 class CreateTaskBatchIn(BaseModel):
     titles: list[str] = Field(min_length=1)
-    book_id: Optional[int] = None
+    book_id: int
     prompt_id: int
     batch_name: Optional[str] = "batch"
     auto_enqueue: bool = True

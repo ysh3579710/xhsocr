@@ -174,6 +174,10 @@ export default function CreateTasksPage() {
       setError("请选择提示词。");
       return;
     }
+    if (bookId === "") {
+      setError("请先绑定书稿后再提交");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -184,7 +188,7 @@ export default function CreateTasksPage() {
         body: JSON.stringify({
           titles,
           prompt_id: Number(promptId),
-          book_id: bookId === "" ? null : Number(bookId),
+          book_id: Number(bookId),
           batch_name: batchName || "batch",
           auto_enqueue: true
         })
@@ -369,7 +373,7 @@ export default function CreateTasksPage() {
                 ))}
               </select>
               <select value={bookId} onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">不绑定书稿（可选）</option>
+                <option value="">选择书稿（必选）</option>
                 {books.map((book) => (
                   <option key={book.id} value={book.id}>
                     {book.id} - {book.title}
