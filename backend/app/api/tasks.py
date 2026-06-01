@@ -7,12 +7,14 @@ import shutil
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TypeVar
 from urllib.parse import quote
 from uuid import uuid4
 
+from math import ceil
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -29,11 +31,14 @@ from app.schemas.tasks import (
     TaskFullOutputUpdateIn,
     TaskImageOut,
     TaskItemOut,
+    TaskListPageOut,
+    TaskNeighborsOut,
 )
 from app.services.task_queue import enqueue_task
 from app.utils.sort import natural_sort_key
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+T = TypeVar("T")
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 IGNORED_FILE_NAMES = {"Thumbs.db", "desktop.ini"}
@@ -98,6 +103,18 @@ def _first_nonempty_line(value: str | None) -> str | None:
     return None
 
 
+def _normalize_points_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    normalized = []
+    for line in lines:
+        text = re.sub(r"^\s*(\d+[\.、]\s*|[一二三四五六七八九十]+[、\.]\s*)", "", line).strip()
+        if text:
+            normalized.append(text)
+    return "\n".join(normalized) if normalized else None
+
+
 def _task_display_title(task: Task) -> str | None:
     if task.task_type == TaskType.create:
         return (task.title or "").strip()[:255] or _first_nonempty_line(task.result.full_output if task.result else None)
@@ -141,6 +158,14 @@ def _task_to_item(task: Task, db: Session) -> TaskItemOut:
     )
 
 
+def _paginate_slice(items: list[T], page: int, page_size: int) -> tuple[list[T], int, int]:
+    total = len(items)
+    total_pages = max(1, ceil(total / page_size)) if page_size > 0 else 1
+    start = (page - 1) * page_size
+    end = start + page_size
+    return items[start:end], total, total_pages
+
+
 def _featured_note_out(note: FeaturedNote) -> FeaturedNoteOut:
     return FeaturedNoteOut(
         id=note.id,
@@ -171,7 +196,10 @@ def _extract_feature_title(task: Task) -> str:
 def _build_framework_outline(task: Task) -> str | None:
     if not task.result or not task.result.extracted_title or not task.result.extracted_points_text:
         return None
-    return f"大标题：{task.result.extracted_title}\n分点观点：\n{task.result.extracted_points_text}"
+    points_text = _normalize_points_text(task.result.extracted_points_text)
+    if not points_text:
+        return None
+    return f"大标题：{task.result.extracted_title}\n分点观点：\n{points_text}"
 
 
 def _extract_folder_name(filename: str) -> str:
@@ -701,13 +729,75 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
     )
 
 
-@router.get("", response_model=list[TaskItemOut])
-def list_tasks(task_type: str = Query(default="ocr"), db: Session = Depends(get_db)) -> list[TaskItemOut]:
-    stmt = select(Task).options(selectinload(Task.prompt), selectinload(Task.result)).order_by(Task.created_at.desc())
+@router.get("", response_model=TaskListPageOut)
+def list_tasks(
+    task_type: str = Query(default="ocr"),
+    title: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> TaskListPageOut:
+    title_query = title.strip().lower()
+
+    base_stmt = select(Task)
     if task_type in {"ocr", "create", "framework"}:
-        stmt = stmt.where(Task.task_type == TaskType(task_type))
+        base_stmt = base_stmt.where(Task.task_type == TaskType(task_type))
+
+    if title_query:
+        tasks = db.execute(
+            base_stmt.options(selectinload(Task.prompt), selectinload(Task.result)).order_by(Task.created_at.desc())
+        ).scalars().all()
+        items = []
+        for task in tasks:
+            display_title = (_task_display_title(task) or "").lower()
+            folder_name = (task.folder_name or "").lower()
+            if title_query in display_title or title_query in folder_name:
+                items.append(_task_to_item(task, db))
+        page_items, total, total_pages = _paginate_slice(items, page, page_size)
+        return TaskListPageOut(items=page_items, page=page, page_size=page_size, total=total, total_pages=total_pages)
+
+    count_stmt = select(func.count()).select_from(Task)
+    if task_type in {"ocr", "create", "framework"}:
+        count_stmt = count_stmt.where(Task.task_type == TaskType(task_type))
+    total = db.execute(count_stmt).scalar_one()
+    total_pages = max(1, ceil(total / page_size)) if page_size > 0 else 1
+
+    stmt = (
+        base_stmt.options(selectinload(Task.prompt), selectinload(Task.result))
+        .order_by(Task.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     tasks = db.execute(stmt).scalars().all()
-    return [_task_to_item(t, db) for t in tasks]
+    return TaskListPageOut(
+        items=[_task_to_item(t, db) for t in tasks],
+        page=page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/{task_id}/neighbors", response_model=TaskNeighborsOut)
+def get_task_neighbors(task_id: int, db: Session = Depends(get_db)) -> TaskNeighborsOut:
+    current = db.get(Task, task_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    task_ids = db.execute(
+        select(Task.id)
+        .where(Task.task_type == current.task_type)
+        .order_by(Task.created_at.desc())
+    ).scalars().all()
+    try:
+        index = task_ids.index(task_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    return TaskNeighborsOut(
+        prev_task_id=task_ids[index - 1] if index > 0 else None,
+        next_task_id=task_ids[index + 1] if index < len(task_ids) - 1 else None,
+    )
 
 
 @router.post("/download-batch")
@@ -856,7 +946,7 @@ def feature_task(task_id: int, db: Session = Depends(get_db)) -> FeaturedNoteOut
     structured_outline = None
     if task.task_type == TaskType.framework and task.result:
         structured_title = task.result.extracted_title
-        structured_points_text = task.result.extracted_points_text
+        structured_points_text = _normalize_points_text(task.result.extracted_points_text)
         structured_outline = _build_framework_outline(task)
 
     note = FeaturedNote(

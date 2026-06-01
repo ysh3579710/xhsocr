@@ -18,6 +18,13 @@ const EMPTY_FORM: PromptFormState = {
   enabled: true
 };
 
+const MODEL_LABELS: Record<string, string> = {
+  "openai/gpt-5-mini": "openai/gpt-5-mini",
+  "openai/gpt-5.3-chat": "openai/gpt-5.3-chat",
+  "claude-sonnet-4.6": "claude-sonnet-4.6",
+  "google/gemini-3-flash-preview": "Gemini 3 Flash Preview"
+};
+
 export default function PromptsPage() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [tracks, setTracks] = useState<string[]>([]);
@@ -35,7 +42,8 @@ export default function PromptsPage() {
   const [supportedModels, setSupportedModels] = useState<string[]>([
     "openai/gpt-5-mini",
     "openai/gpt-5.3-chat",
-    "claude-sonnet-4.6"
+    "claude-sonnet-4.6",
+    "google/gemini-3-flash-preview"
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -240,7 +248,7 @@ export default function PromptsPage() {
         <form onSubmit={onSaveActiveModel} className="rowHeader">
           <select value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
             {supportedModels.map((model) => (
-              <option key={model} value={model}>{model}</option>
+              <option key={model} value={model}>{MODEL_LABELS[model] || model}</option>
             ))}
           </select>
           <button type="submit" disabled={loading}>保存生效模型</button>

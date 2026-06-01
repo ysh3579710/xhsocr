@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+import re
+from math import ceil
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
@@ -7,6 +10,7 @@ from app.models.entities import Book, FeaturedNote, Prompt, Task, TaskResult, Ta
 from app.schemas.featured_notes import (
     FeaturedNoteCreateSpawnIn,
     FeaturedNoteFrameworkSpawnIn,
+    FeaturedNoteListPageOut,
     FeaturedNoteManualIn,
     FeaturedNoteOut,
     FeaturedNoteRewriteSpawnIn,
@@ -44,6 +48,18 @@ def _to_out(note: FeaturedNote) -> FeaturedNoteOut:
     )
 
 
+def _normalize_points_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    normalized = []
+    for line in lines:
+        text = re.sub(r"^\s*(\d+[\.、]\s*|[一二三四五六七八九十]+[、\.]\s*)", "", line).strip()
+        if text:
+            normalized.append(text)
+    return "\n".join(normalized) if normalized else None
+
+
 def _get_prompt_or_400(db: Session, prompt_id: int) -> Prompt:
     prompt = db.get(Prompt, prompt_id)
     if not prompt:
@@ -71,10 +87,35 @@ def _enqueue_if_needed(db: Session, task: Task, auto_enqueue: bool) -> None:
         raise HTTPException(status_code=500, detail=f"Enqueue failed: {exc}") from exc
 
 
-@router.get("", response_model=list[FeaturedNoteOut])
-def list_featured_notes(db: Session = Depends(get_db)) -> list[FeaturedNoteOut]:
-    rows = db.execute(select(FeaturedNote).order_by(FeaturedNote.updated_at.desc(), FeaturedNote.id.desc())).scalars().all()
-    return [_to_out(row) for row in rows]
+@router.get("", response_model=FeaturedNoteListPageOut)
+def list_featured_notes(
+    title: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> FeaturedNoteListPageOut:
+    query = title.strip()
+    stmt = select(FeaturedNote)
+    count_stmt = select(func.count()).select_from(FeaturedNote)
+    if query:
+        like = f"%{query}%"
+        stmt = stmt.where(FeaturedNote.title.ilike(like))
+        count_stmt = count_stmt.where(FeaturedNote.title.ilike(like))
+
+    total = db.execute(count_stmt).scalar_one()
+    total_pages = max(1, ceil(total / page_size)) if page_size > 0 else 1
+    rows = db.execute(
+        stmt.order_by(FeaturedNote.updated_at.desc(), FeaturedNote.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    return FeaturedNoteListPageOut(
+        items=[_to_out(row) for row in rows],
+        page=page,
+        page_size=page_size,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 @router.post("/manual", response_model=FeaturedNoteOut, status_code=status.HTTP_201_CREATED)
@@ -206,7 +247,7 @@ def spawn_framework_from_featured(note_id: int, payload: FeaturedNoteFrameworkSp
             task_id=task.id,
             original_note_text=note.full_text,
             extracted_title=note.structured_title,
-            extracted_points_text=note.structured_points_text,
+            extracted_points_text=_normalize_points_text(note.structured_points_text),
             matched_book_segments=({"outline": note.structured_outline} if note.structured_outline else None),
         )
     )

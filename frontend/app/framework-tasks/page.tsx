@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { PaginationControls } from "../../components/pagination-controls";
 import { apiFetch, apiFetchResponse } from "../../lib/api";
 import { formatBeijingDateTime } from "../../lib/time";
-import { Book, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
+import { Book, PaginatedResponse, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
 
 type CreateMode = "folder" | "paste" | "custom";
 type UploadFile = File & { webkitRelativePath?: string };
@@ -36,6 +37,7 @@ const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_GROUP_IMAGES = 30;
 const MAX_IMAGE_SIZE_MB = 20;
 const MAX_IMAGE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const PAGE_SIZE = 50;
 
 function createId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -80,6 +82,9 @@ export default function FrameworkTasksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
@@ -154,15 +159,10 @@ export default function FrameworkTasksPage() {
     [customGroups]
   );
 
-  const filteredTasks = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter((task) => {
-      const title = (task.display_title || "").toLowerCase();
-      const taskName = (task.folder_name || "").toLowerCase();
-      return title.includes(q) || taskName.includes(q);
-    });
-  }, [tasks, keyword]);
+  const hasPendingTasks = useMemo(
+    () => tasks.some((t) => t.status === "waiting" || t.status === "processing"),
+    [tasks]
+  );
 
   function showModalToast(message: string) {
     setModalToast(message);
@@ -230,71 +230,97 @@ export default function FrameworkTasksPage() {
     }
   }
 
-  async function loadData() {
-    setLoading(true);
-    setError("");
-    try {
-      const [taskData, bookData, promptData] = await Promise.all([
-        apiFetch<Task[]>("/tasks?task_type=framework"),
-        apiFetch<Book[]>("/books"),
-        apiFetch<PromptItem[]>("/prompts?enabled=true")
-      ]);
-      setTasks(taskData);
-      setBooks(bookData);
-      setPrompts(promptData);
-      if (promptData.length > 0) {
-        const recentPrompt = taskData.find((t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
-          ?.prompt_id;
-        setPromptId(recentPrompt || promptData[0].id);
-      } else {
-        setPromptId("");
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
+  function buildTasksPath(pageValue: number, titleValue: string) {
+    const params = new URLSearchParams({
+      task_type: "framework",
+      page: String(pageValue),
+      page_size: String(PAGE_SIZE),
+    });
+    const title = titleValue.trim();
+    if (title) params.set("title", title);
+    return `/tasks?${params.toString()}`;
+  }
+
+  async function loadTaskPage(options?: {
+    page?: number;
+    title?: string;
+    includeAuxiliary?: boolean;
+    silent?: boolean;
+  }) {
+    const nextPage = options?.page ?? page;
+    const nextTitle = options?.title ?? keyword;
+    const includeAuxiliary = options?.includeAuxiliary ?? false;
+    const silent = options?.silent ?? false;
+
+    if (!silent) {
+      setLoading(true);
+      setError("");
     }
+
+    try {
+      const requests: [
+        Promise<PaginatedResponse<Task>>,
+        Promise<Book[]> | null,
+        Promise<PromptItem[]> | null
+      ] = [
+        apiFetch<PaginatedResponse<Task>>(buildTasksPath(nextPage, nextTitle)),
+        includeAuxiliary ? apiFetch<Book[]>("/books") : null,
+        includeAuxiliary ? apiFetch<PromptItem[]>("/prompts?enabled=true") : null,
+      ];
+      const [taskPage, bookData, promptData] = await Promise.all(requests);
+      setTasks(taskPage.items);
+      setPage(taskPage.page);
+      setTotal(taskPage.total);
+      setTotalPages(taskPage.total_pages);
+      if (bookData) setBooks(bookData);
+      if (promptData) {
+        setPrompts(promptData);
+        if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
+          const recentPrompt = taskPage.items.find(
+            (t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id)
+          )?.prompt_id;
+          setPromptId(recentPrompt || promptData[0].id);
+        } else if (promptData.length === 0) {
+          setPromptId("");
+        }
+      }
+      if (silent) setAutoRefreshError("");
+    } catch (e) {
+      if (silent) {
+        setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
+      } else {
+        setError((e as Error).message);
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }
+
+  async function loadData(includeAuxiliary = true) {
+    await loadTaskPage({ includeAuxiliary });
   }
 
   async function loadDataSilently() {
-    try {
-      const [taskData, bookData, promptData] = await Promise.all([
-        apiFetch<Task[]>("/tasks?task_type=framework"),
-        apiFetch<Book[]>("/books"),
-        apiFetch<PromptItem[]>("/prompts?enabled=true")
-      ]);
-      setTasks(taskData);
-      setBooks(bookData);
-      setPrompts(promptData);
-      if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-        const recentPrompt = taskData.find((t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
-          ?.prompt_id;
-        setPromptId(recentPrompt || promptData[0].id);
-      }
-      setAutoRefreshError("");
-    } catch (e) {
-      setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
-    }
+    await loadTaskPage({ silent: true });
   }
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    void loadTaskPage({ includeAuxiliary: books.length === 0 || prompts.length === 0 });
+  }, [page, keyword]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
   }, [tasks]);
 
   useEffect(() => {
-    const hasPending = tasks.some((t) => t.status === "waiting" || t.status === "processing");
-    const intervalMs = hasPending ? 3000 : 15000;
+    const intervalMs = hasPendingTasks ? 3000 : 15000;
     const tick = () => {
       if (document.hidden) return;
       void loadDataSilently();
     };
     const timer = setInterval(tick, intervalMs);
     return () => clearInterval(timer);
-  }, [tasks]);
+  }, [hasPendingTasks, page, keyword]);
 
   useEffect(() => {
     if (!isCreateOpen || createMode !== "paste") return;
@@ -767,7 +793,10 @@ export default function FrameworkTasksPage() {
         <div className="toolbarRow">
           <input
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+            onChange={(e) => {
+              setKeyword(e.target.value);
+              setPage(1);
+            }}
             placeholder="按标题搜索任务"
           />
         </div>
@@ -782,7 +811,7 @@ export default function FrameworkTasksPage() {
             <span>创建时间</span>
             <span>操作</span>
           </div>
-          {filteredTasks.map((t) => (
+          {tasks.map((t) => (
             <div key={t.id} className="trow trow8">
               <span className="rowCheck">
                 <input
@@ -816,8 +845,16 @@ export default function FrameworkTasksPage() {
               </span>
             </div>
           ))}
-          {filteredTasks.length === 0 ? <p className="empty">{tasks.length === 0 ? "暂无任务" : "没有匹配的任务"}</p> : null}
+          {tasks.length === 0 ? <p className="empty">{total === 0 ? "暂无任务" : "没有匹配的任务"}</p> : null}
         </div>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={PAGE_SIZE}
+          disabled={loading}
+          onChange={setPage}
+        />
       </section>
 
       {isCreateOpen ? (

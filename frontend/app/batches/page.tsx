@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { PaginationControls } from "../../components/pagination-controls";
 import { apiFetch } from "../../lib/api";
-import { Batch, Book, Task } from "../../lib/types";
+import { Batch, PaginatedResponse, Task } from "../../lib/types";
+
+const PAGE_SIZE = 50;
 
 function taskDetailPath(task: Task): string {
   if (task.task_type === "create") return `/create-tasks/${task.id}`;
@@ -14,25 +17,53 @@ function taskDetailPath(task: Task): string {
 export default function BatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [books, setBooks] = useState<Book[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchTotalPages, setBatchTotalPages] = useState(1);
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskTotal, setTaskTotal] = useState(0);
+  const [taskTotalPages, setTaskTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadData() {
+  function buildBatchPath(pageValue: number) {
+    return `/batch?page=${pageValue}&page_size=${PAGE_SIZE}`;
+  }
+
+  function buildBatchTaskPath(batchId: number, pageValue: number) {
+    return `/batch/${batchId}/tasks?page=${pageValue}&page_size=${PAGE_SIZE}`;
+  }
+
+  async function loadBatchTasks(batchId: number, nextTaskPage = taskPage) {
+    const taskData = await apiFetch<PaginatedResponse<Task>>(buildBatchTaskPath(batchId, nextTaskPage));
+    setTasks(taskData.items);
+    setTaskPage(taskData.page);
+    setTaskTotal(taskData.total);
+    setTaskTotalPages(taskData.total_pages);
+  }
+
+  async function loadData(nextBatchPage = batchPage, nextTaskPage = taskPage) {
     setLoading(true);
     setError("");
     try {
-      const [batchData, taskData, bookData] = await Promise.all([
-        apiFetch<Batch[]>("/batch"),
-        apiFetch<Task[]>("/tasks?task_type=all"),
-        apiFetch<Book[]>("/books")
-      ]);
-      setBatches(batchData);
-      setTasks(taskData);
-      setBooks(bookData);
-      if (batchData.length > 0 && !selectedBatchId) {
-        setSelectedBatchId(batchData[0].id);
+      const batchData = await apiFetch<PaginatedResponse<Batch>>(buildBatchPath(nextBatchPage));
+      setBatches(batchData.items);
+      setBatchPage(batchData.page);
+      setBatchTotal(batchData.total);
+      setBatchTotalPages(batchData.total_pages);
+
+      const hasSelectedOnPage = batchData.items.some((item) => item.id === selectedBatchId);
+      const activeBatchId = hasSelectedOnPage ? selectedBatchId : (batchData.items[0]?.id ?? null);
+      setSelectedBatchId(activeBatchId);
+
+      if (activeBatchId) {
+        await loadBatchTasks(activeBatchId, hasSelectedOnPage ? nextTaskPage : 1);
+      } else {
+        setTasks([]);
+        setTaskPage(1);
+        setTaskTotal(0);
+        setTaskTotalPages(1);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -43,17 +74,12 @@ export default function BatchesPage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [batchPage]);
 
-  const selectedTasks = useMemo(
-    () => tasks.filter((t) => t.batch_id === selectedBatchId),
-    [tasks, selectedBatchId]
-  );
-  const bookTitleById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const b of books) map.set(b.id, b.title);
-    return map;
-  }, [books]);
+  useEffect(() => {
+    if (!selectedBatchId) return;
+    void loadBatchTasks(selectedBatchId, taskPage);
+  }, [selectedBatchId, taskPage]);
 
   return (
     <div className="pageWrap">
@@ -82,7 +108,10 @@ export default function BatchesPage() {
             <div
               key={b.id}
               className={`trow trow7 clickable ${selectedBatchId === b.id ? "active" : ""}`}
-              onClick={() => setSelectedBatchId(b.id)}
+              onClick={() => {
+                setSelectedBatchId(b.id);
+                setTaskPage(1);
+              }}
             >
               <span>{b.id}</span>
               <span>{b.batch_name}</span>
@@ -95,6 +124,14 @@ export default function BatchesPage() {
           ))}
           {batches.length === 0 ? <p className="empty">暂无批次</p> : null}
         </div>
+        <PaginationControls
+          page={batchPage}
+          totalPages={batchTotalPages}
+          total={batchTotal}
+          pageSize={PAGE_SIZE}
+          disabled={loading}
+          onChange={setBatchPage}
+        />
       </section>
 
       <section className="card">
@@ -107,17 +144,25 @@ export default function BatchesPage() {
             <span>状态</span>
             <span>操作</span>
           </div>
-          {selectedTasks.map((t) => (
+          {tasks.map((t) => (
             <div key={t.id} className="trow">
               <span>{t.id}</span>
               <span>{t.folder_name}</span>
-              <span>{t.book_id ? (bookTitleById.get(t.book_id) || `ID:${t.book_id}`) : "-"}</span>
+              <span>{t.book_name || (t.book_id ? `ID:${t.book_id}` : "-")}</span>
               <span>{t.status}</span>
               <span><Link className="linkBtn" href={taskDetailPath(t)}>查看详情</Link></span>
             </div>
           ))}
-          {selectedTasks.length === 0 ? <p className="empty">当前批次暂无子任务</p> : null}
+          {tasks.length === 0 ? <p className="empty">当前批次暂无子任务</p> : null}
         </div>
+        <PaginationControls
+          page={taskPage}
+          totalPages={taskTotalPages}
+          total={taskTotal}
+          pageSize={PAGE_SIZE}
+          disabled={loading || !selectedBatchId}
+          onChange={setTaskPage}
+        />
       </section>
     </div>
   );

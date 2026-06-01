@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { PaginationControls } from "../../components/pagination-controls";
 import { apiFetch, apiFetchResponse } from "../../lib/api";
-import { Book, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
+import { Book, PaginatedResponse, PromptItem, Task, TaskCreateResponse } from "../../lib/types";
 import { formatBeijingDateTime } from "../../lib/time";
+
+const PAGE_SIZE = 50;
 
 function parseTitles(raw: string): string[] {
   return raw
@@ -18,6 +21,9 @@ export default function CreateTasksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
@@ -30,11 +36,10 @@ export default function CreateTasksPage() {
   const [promptId, setPromptId] = useState<number | "">("");
 
   const titleCount = useMemo(() => parseTitles(titlesText).length, [titlesText]);
-  const filteredTasks = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter((task) => (task.title || "").toLowerCase().includes(q));
-  }, [tasks, keyword]);
+  const hasPendingTasks = useMemo(
+    () => tasks.some((t) => t.status === "waiting" || t.status === "processing"),
+    [tasks]
+  );
 
   function getDownloadFilename(resp: Response, fallback: string): string {
     const disposition = resp.headers.get("content-disposition") || "";
@@ -97,71 +102,97 @@ export default function CreateTasksPage() {
     }
   }
 
-  async function loadData() {
-    setLoading(true);
-    setError("");
-    try {
-      const [taskData, bookData] = await Promise.all([
-        apiFetch<Task[]>("/tasks?task_type=create"),
-        apiFetch<Book[]>("/books")
-      ]);
-      setTasks(taskData);
-      setBooks(bookData);
-      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
-      setPrompts(promptData);
-      if (promptData.length > 0) {
-        const recentPrompt = taskData.find((t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
-          ?.prompt_id;
-        setPromptId(recentPrompt || promptData[0].id);
-      } else {
-        setPromptId("");
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
+  function buildTasksPath(pageValue: number, titleValue: string) {
+    const params = new URLSearchParams({
+      task_type: "create",
+      page: String(pageValue),
+      page_size: String(PAGE_SIZE),
+    });
+    const title = titleValue.trim();
+    if (title) params.set("title", title);
+    return `/tasks?${params.toString()}`;
+  }
+
+  async function loadTaskPage(options?: {
+    page?: number;
+    title?: string;
+    includeAuxiliary?: boolean;
+    silent?: boolean;
+  }) {
+    const nextPage = options?.page ?? page;
+    const nextTitle = options?.title ?? keyword;
+    const includeAuxiliary = options?.includeAuxiliary ?? false;
+    const silent = options?.silent ?? false;
+
+    if (!silent) {
+      setLoading(true);
+      setError("");
     }
+
+    try {
+      const requests: [
+        Promise<PaginatedResponse<Task>>,
+        Promise<Book[]> | null,
+        Promise<PromptItem[]> | null
+      ] = [
+        apiFetch<PaginatedResponse<Task>>(buildTasksPath(nextPage, nextTitle)),
+        includeAuxiliary ? apiFetch<Book[]>("/books") : null,
+        includeAuxiliary ? apiFetch<PromptItem[]>("/prompts?enabled=true") : null,
+      ];
+      const [taskPage, bookData, promptData] = await Promise.all(requests);
+      setTasks(taskPage.items);
+      setPage(taskPage.page);
+      setTotal(taskPage.total);
+      setTotalPages(taskPage.total_pages);
+      if (bookData) setBooks(bookData);
+      if (promptData) {
+        setPrompts(promptData);
+        if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
+          const recentPrompt = taskPage.items.find(
+            (t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id)
+          )?.prompt_id;
+          setPromptId(recentPrompt || promptData[0].id);
+        } else if (promptData.length === 0) {
+          setPromptId("");
+        }
+      }
+      if (silent) setAutoRefreshError("");
+    } catch (e) {
+      if (silent) {
+        setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
+      } else {
+        setError((e as Error).message);
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }
+
+  async function loadData(includeAuxiliary = true) {
+    await loadTaskPage({ includeAuxiliary });
   }
 
   async function loadDataSilently() {
-    try {
-      const [taskData, bookData] = await Promise.all([
-        apiFetch<Task[]>("/tasks?task_type=create"),
-        apiFetch<Book[]>("/books")
-      ]);
-      setTasks(taskData);
-      setBooks(bookData);
-      const promptData = await apiFetch<PromptItem[]>("/prompts?enabled=true");
-      setPrompts(promptData);
-      if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-        const recentPrompt = taskData.find((t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id))
-          ?.prompt_id;
-        setPromptId(recentPrompt || promptData[0].id);
-      }
-      setAutoRefreshError("");
-    } catch (e) {
-      setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
-    }
+    await loadTaskPage({ silent: true });
   }
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    void loadTaskPage({ includeAuxiliary: books.length === 0 || prompts.length === 0 });
+  }, [page, keyword]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
   }, [tasks]);
 
   useEffect(() => {
-    const hasPending = tasks.some((t) => t.status === "waiting" || t.status === "processing");
-    const intervalMs = hasPending ? 3000 : 15000;
+    const intervalMs = hasPendingTasks ? 3000 : 15000;
     const tick = () => {
       if (document.hidden) return;
       void loadDataSilently();
     };
     const timer = setInterval(tick, intervalMs);
     return () => clearInterval(timer);
-  }, [tasks]);
+  }, [hasPendingTasks, page, keyword]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -295,7 +326,10 @@ export default function CreateTasksPage() {
         <div className="toolbarRow">
           <input
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+            onChange={(e) => {
+              setKeyword(e.target.value);
+              setPage(1);
+            }}
             placeholder="按标题搜索任务"
           />
         </div>
@@ -310,7 +344,7 @@ export default function CreateTasksPage() {
             <span>创建时间</span>
             <span>操作</span>
           </div>
-          {filteredTasks.map((t) => (
+          {tasks.map((t) => (
             <div key={t.id} className="trow trow8">
               <span className="rowCheck">
                 <input
@@ -344,8 +378,16 @@ export default function CreateTasksPage() {
               </span>
             </div>
           ))}
-          {filteredTasks.length === 0 ? <p className="empty">{tasks.length === 0 ? "暂无原创任务" : "没有匹配的任务"}</p> : null}
+          {tasks.length === 0 ? <p className="empty">{total === 0 ? "暂无原创任务" : "没有匹配的任务"}</p> : null}
         </div>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={PAGE_SIZE}
+          disabled={loading}
+          onChange={setPage}
+        />
       </section>
 
       {isCreateOpen ? (

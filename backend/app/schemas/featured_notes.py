@@ -45,3 +45,11 @@ class FeaturedNoteOut(BaseModel):
     structured_outline: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+
+class FeaturedNoteListPageOut(BaseModel):
+    items: list[FeaturedNoteOut]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int

@@ -58,6 +58,19 @@ class TaskItemOut(BaseModel):
     created_at: datetime
 
 
+class TaskListPageOut(BaseModel):
+    items: list[TaskItemOut]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class TaskNeighborsOut(BaseModel):
+    prev_task_id: Optional[int]
+    next_task_id: Optional[int]
+
+
 class TaskImageOut(BaseModel):
     id: int
     file_name: str

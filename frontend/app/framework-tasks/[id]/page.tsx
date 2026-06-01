@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch, apiFetchResponse } from "../../../lib/api";
 import { formatBeijingDateTime } from "../../../lib/time";
-import { Task, TaskDetail } from "../../../lib/types";
+import { TaskDetail, TaskNeighbors } from "../../../lib/types";
 
 export default function FrameworkTaskDetailPage() {
   const params = useParams<{ id: string }>();
@@ -17,7 +17,8 @@ export default function FrameworkTaskDetailPage() {
   const [error, setError] = useState("");
   const [autoRefreshError, setAutoRefreshError] = useState("");
   const [toast, setToast] = useState("");
-  const [taskIds, setTaskIds] = useState<number[]>([]);
+  const [prevTaskId, setPrevTaskId] = useState<number | null>(null);
+  const [nextTaskId, setNextTaskId] = useState<number | null>(null);
   const [editedFullOutput, setEditedFullOutput] = useState("");
   const [showDetailBlocks, setShowDetailBlocks] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -113,9 +114,9 @@ export default function FrameworkTaskDetailPage() {
     setLoading(true);
     setError("");
     try {
-      const [data, list] = await Promise.all([
+      const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<Task[]>("/tasks?task_type=framework"),
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`),
       ]);
       if (data.task_type !== "framework") {
         setError("该任务不是原创创作（框架）任务。");
@@ -124,7 +125,8 @@ export default function FrameworkTaskDetailPage() {
       }
       setDetail(data);
       setEditedFullOutput(data.full_output || "");
-      setTaskIds(list.map((t) => t.id));
+      setPrevTaskId(neighbors.prev_task_id);
+      setNextTaskId(neighbors.next_task_id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -135,25 +137,22 @@ export default function FrameworkTaskDetailPage() {
   async function loadDetailSilently() {
     if (!taskId) return;
     try {
-      const [data, list] = await Promise.all([
+      const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<Task[]>("/tasks?task_type=framework"),
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`),
       ]);
       if (data.task_type !== "framework") return;
       setDetail(data);
       if (!dirtyRef.current && !editingRef.current) {
         setEditedFullOutput(data.full_output || "");
       }
-      setTaskIds(list.map((t) => t.id));
+      setPrevTaskId(neighbors.prev_task_id);
+      setNextTaskId(neighbors.next_task_id);
       setAutoRefreshError("");
     } catch (e) {
       setAutoRefreshError(`自动刷新失败：${(e as Error).message}`);
     }
   }
-
-  const currentIndex = useMemo(() => taskIds.findIndex((id) => id === taskId), [taskIds, taskId]);
-  const prevTaskId = currentIndex > 0 ? taskIds[currentIndex - 1] : null;
-  const nextTaskId = currentIndex >= 0 && currentIndex < taskIds.length - 1 ? taskIds[currentIndex + 1] : null;
 
   useEffect(() => {
     void loadDetail();

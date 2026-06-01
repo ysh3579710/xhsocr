@@ -11,6 +11,7 @@ SUPPORTED_LLM_MODELS = [
     "openai/gpt-5-mini",
     "openai/gpt-5.3-chat",
     "claude-sonnet-4.6",
+    "google/gemini-3-flash-preview",
 ]
 
 

@@ -97,3 +97,16 @@ export type FeaturedNote = {
   created_at: string;
   updated_at: string;
 };
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+};
+
+export type TaskNeighbors = {
+  prev_task_id: number | null;
+  next_task_id: number | null;
+};

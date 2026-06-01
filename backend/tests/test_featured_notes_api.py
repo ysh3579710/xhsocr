@@ -58,7 +58,8 @@ class FeaturedNotesApiTests(unittest.TestCase):
     def test_list_featured_notes_route_exists(self) -> None:
         response = self.client.get("/featured-notes")
         self.assertEqual(response.status_code, 200)
-        self.assertIsInstance(response.json(), list)
+        self.assertIsInstance(response.json(), dict)
+        self.assertIn("items", response.json())
 
     def test_create_manual_featured_note_route_exists(self) -> None:
         response = self.client.post(
@@ -103,7 +104,7 @@ class FeaturedNotesApiTests(unittest.TestCase):
         data = response.json()
         self.created_featured_ids.append(data["id"])
         self.assertEqual(data["structured_title"], "框架标题")
-        self.assertEqual(data["structured_points_text"], "1. 观点一\n2. 观点二")
+        self.assertEqual(data["structured_points_text"], "观点一\n观点二")
 
     def test_create_task_prefers_task_title_when_featured(self) -> None:
         task_id = self._create_task(TaskType.create, TaskStatus.success, "最终文本第一行\n正文内容")
@@ -124,7 +125,7 @@ class FeaturedNotesApiTests(unittest.TestCase):
         self.assertEqual(delete_response.status_code, 204)
 
         list_response = self.client.get("/featured-notes")
-        ids = [item["id"] for item in list_response.json()]
+        ids = [item["id"] for item in list_response.json()["items"]]
         self.assertNotIn(note_id, ids)
 
     def test_task_list_and_detail_expose_feature_state(self) -> None:
@@ -136,7 +137,7 @@ class FeaturedNotesApiTests(unittest.TestCase):
 
         list_response = self.client.get("/tasks")
         self.assertEqual(list_response.status_code, 200)
-        task_item = next(item for item in list_response.json() if item["id"] == task_id)
+        task_item = next(item for item in list_response.json()["items"] if item["id"] == task_id)
         self.assertTrue(task_item["is_featured"])
         self.assertEqual(task_item["featured_note_id"], note_id)
 
@@ -214,7 +215,7 @@ class FeaturedNotesApiTests(unittest.TestCase):
         self.assertEqual(new_task.task_type, TaskType.framework)
         self.assertEqual(new_task.folder_name, "二次框架任务")
         self.assertEqual(new_result.extracted_title, "框架标题")
-        self.assertEqual(new_result.extracted_points_text, "1. 观点一\n2. 观点二")
+        self.assertEqual(new_result.extracted_points_text, "观点一\n观点二")
 
 
 if __name__ == "__main__":

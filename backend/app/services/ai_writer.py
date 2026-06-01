@@ -59,13 +59,12 @@ class LLMClient:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
         }
-        if self.model == "claude-sonnet-4.6":
-            payload["reasoning"] = {"enabled": True}
+        timeout_seconds = self._request_timeout_seconds()
         max_attempts = max(1, settings.llm_retry_count + 1)
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
-                with httpx.Client(timeout=settings.llm_timeout_seconds) as client:
+                with httpx.Client(timeout=timeout_seconds) as client:
                     resp = client.post(url, headers=headers, json=payload)
                     resp.raise_for_status()
                     data = resp.json()
@@ -81,6 +80,11 @@ class LLMClient:
                 f"LLM request failed after {max_attempts} attempt(s): {last_exc.__class__.__name__}: {last_exc}"
             ) from last_exc
         raise RuntimeError("LLM request failed unexpectedly.")
+
+    def _request_timeout_seconds(self) -> int:
+        if self.model == "claude-sonnet-4.6":
+            return 120
+        return settings.llm_timeout_seconds
 
     def _mock(self, prompt: str) -> str:
         if "固定标签" in prompt:

@@ -79,6 +79,28 @@ def _prepare_create_book_context(db, book_id: int | None, limit: int = 6) -> tup
     return book.title, text
 
 
+def _extract_json_object(raw: str) -> dict:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    decoder = json.JSONDecoder()
+    candidates = [cleaned]
+    first_brace = cleaned.find("{")
+    if first_brace > 0:
+        candidates.append(cleaned[first_brace:])
+
+    for candidate in candidates:
+        try:
+            payload, _ = decoder.raw_decode(candidate)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise RuntimeError("提取标题或分点观点时出错")
+
+
 def _extract_outline_with_internal_prompt(llm: LLMClient, original_note_text: str) -> tuple[str, str, str]:
     extract_prompt = (
         "请从下列文本中提取“大标题”和“分点观点标题”，并严格只输出 JSON，格式如下：\n"
@@ -91,7 +113,7 @@ def _extract_outline_with_internal_prompt(llm: LLMClient, original_note_text: st
     )
     raw = llm.chat(extract_prompt).strip()
     try:
-        payload = json.loads(raw)
+        payload = _extract_json_object(raw)
     except Exception as exc:
         raise RuntimeError("提取标题或分点观点时出错") from exc
 
@@ -112,7 +134,7 @@ def _extract_outline_with_internal_prompt(llm: LLMClient, original_note_text: st
     if not points:
         raise RuntimeError("提取标题或分点观点时出错")
 
-    points_text = "\n".join([f"{idx + 1}. {p}" for idx, p in enumerate(points)])
+    points_text = "\n".join(points)
     outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
     return title, points_text, outline
 

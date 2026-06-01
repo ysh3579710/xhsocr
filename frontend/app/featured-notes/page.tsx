@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { PaginationControls } from "../../components/pagination-controls";
 import { apiFetch } from "../../lib/api";
 import { formatBeijingDateTime } from "../../lib/time";
-import { FeaturedNote } from "../../lib/types";
+import { FeaturedNote, PaginatedResponse } from "../../lib/types";
+
+const PAGE_SIZE = 50;
 
 function sourceTypeLabel(note: FeaturedNote) {
   if (note.is_manual) return "手动创建";
@@ -16,24 +19,34 @@ function sourceTypeLabel(note: FeaturedNote) {
 
 export default function FeaturedNotesPage() {
   const [notes, setNotes] = useState<FeaturedNote[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [manualContent, setManualContent] = useState("");
   const [keyword, setKeyword] = useState("");
 
-  const filteredNotes = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return notes;
-    return notes.filter((note) => note.title.toLowerCase().includes(q));
-  }, [notes, keyword]);
+  function buildNotesPath(pageValue: number, titleValue: string) {
+    const params = new URLSearchParams({
+      page: String(pageValue),
+      page_size: String(PAGE_SIZE),
+    });
+    const title = titleValue.trim();
+    if (title) params.set("title", title);
+    return `/featured-notes?${params.toString()}`;
+  }
 
-  async function loadNotes() {
+  async function loadNotes(pageValue = page, titleValue = keyword) {
     setLoading(true);
     setError("");
     try {
-      const data = await apiFetch<FeaturedNote[]>("/featured-notes");
-      setNotes(data);
+      const data = await apiFetch<PaginatedResponse<FeaturedNote>>(buildNotesPath(pageValue, titleValue));
+      setNotes(data.items);
+      setPage(data.page);
+      setTotal(data.total);
+      setTotalPages(data.total_pages);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -43,7 +56,7 @@ export default function FeaturedNotesPage() {
 
   useEffect(() => {
     void loadNotes();
-  }, []);
+  }, [page, keyword]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -53,7 +66,7 @@ export default function FeaturedNotesPage() {
     }
     setLoading(true);
     setError("");
-    try {
+      try {
       await apiFetch<FeaturedNote>("/featured-notes/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,7 +74,7 @@ export default function FeaturedNotesPage() {
       });
       setManualContent("");
       setIsCreateOpen(false);
-      await loadNotes();
+      setPage(1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -76,7 +89,11 @@ export default function FeaturedNotesPage() {
     setError("");
     try {
       await apiFetch(`/featured-notes/${noteId}`, { method: "DELETE" });
-      await loadNotes();
+      if (notes.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        await loadNotes();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -103,7 +120,10 @@ export default function FeaturedNotesPage() {
         <h2>标题搜索</h2>
         <input
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => {
+            setKeyword(e.target.value);
+            setPage(1);
+          }}
           placeholder="按标题关键字筛选"
         />
       </section>
@@ -118,7 +138,7 @@ export default function FeaturedNotesPage() {
             <span>创建时间</span>
             <span>操作</span>
           </div>
-          {filteredNotes.map((note) => (
+          {notes.map((note) => (
             <div key={note.id} className="trow trow5">
               <span>{note.id}</span>
               <span>{sourceTypeLabel(note)}</span>
@@ -130,8 +150,16 @@ export default function FeaturedNotesPage() {
               </span>
             </div>
           ))}
-          {filteredNotes.length === 0 ? <p className="empty">暂无精选笔记</p> : null}
+          {notes.length === 0 ? <p className="empty">{total === 0 ? "暂无精选笔记" : "没有匹配的精选笔记"}</p> : null}
         </div>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={PAGE_SIZE}
+          disabled={loading}
+          onChange={setPage}
+        />
       </section>
 
       {isCreateOpen ? (
