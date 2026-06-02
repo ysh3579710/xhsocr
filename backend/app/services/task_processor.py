@@ -29,6 +29,8 @@ from app.services.llm_settings import get_active_llm_model
 from app.services.book_matcher import match_book_segments
 from app.services.ocr import extract_text_with_timeout, get_ocr_service
 
+FRAMEWORK_OUTLINE_EXTRACT_MODEL = "openai/gpt-5.3-chat"
+
 
 def _log(db, task_id: int, stage: str, level: str, message: str) -> None:
     db.add(TaskLog(task_id=task_id, stage=stage, level=level, message=message))
@@ -320,10 +322,17 @@ def process_task(task_id: int) -> None:
                 outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
                 _log_and_commit(db, task, "extract", "info", "Using structured outline snapshot.")
             else:
-                title, points_text, outline = _extract_outline_with_internal_prompt(llm, original_note_text)
+                extract_llm = LLMClient(model=FRAMEWORK_OUTLINE_EXTRACT_MODEL)
+                title, points_text, outline = _extract_outline_with_internal_prompt(extract_llm, original_note_text)
                 result.extracted_title = title
                 result.extracted_points_text = points_text
-                _log_and_commit(db, task, "extract", "info", "Outline extraction finished.")
+                _log_and_commit(
+                    db,
+                    task,
+                    "extract",
+                    "info",
+                    f"Outline extraction finished with {FRAMEWORK_OUTLINE_EXTRACT_MODEL}.",
+                )
             final_prompt = render_prompt_template(
                 task.prompt_snapshot,
                 {
