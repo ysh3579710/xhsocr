@@ -9,13 +9,17 @@ type PromptFormState = {
   name: string;
   content: string;
   enabled: boolean;
+  llm_model: string;
+  attribute: string;
 };
 
 const EMPTY_FORM: PromptFormState = {
   track: "",
   name: "",
   content: "",
-  enabled: true
+  enabled: true,
+  llm_model: "",
+  attribute: ""
 };
 
 const MODEL_LABELS: Record<string, string> = {
@@ -28,6 +32,7 @@ const MODEL_LABELS: Record<string, string> = {
 export default function PromptsPage() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [tracks, setTracks] = useState<string[]>([]);
+  const [attributes, setAttributes] = useState<string[]>([]);
   const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<PromptFormState>(EMPTY_FORM);
   const [createForm, setCreateForm] = useState<PromptFormState>(EMPTY_FORM);
@@ -37,6 +42,7 @@ export default function PromptsPage() {
   const [filterTrack, setFilterTrack] = useState("");
   const [filterEnabled, setFilterEnabled] = useState("all");
   const [filterKeyword, setFilterKeyword] = useState("");
+  const [filterAttribute, setFilterAttribute] = useState("");
 
   const [activeModel, setActiveModel] = useState("openai/gpt-5-mini");
   const [supportedModels, setSupportedModels] = useState<string[]>([
@@ -51,6 +57,7 @@ export default function PromptsPage() {
   function buildPromptListPath() {
     const qs = new URLSearchParams();
     if (filterTrack) qs.set("track", filterTrack);
+    if (filterAttribute) qs.set("attribute", filterAttribute);
     if (filterEnabled === "enabled") qs.set("enabled", "true");
     if (filterEnabled === "disabled") qs.set("enabled", "false");
     if (filterKeyword.trim()) qs.set("q", filterKeyword.trim());
@@ -72,6 +79,11 @@ export default function PromptsPage() {
     setTracks(data);
   }
 
+  async function loadAttributes() {
+    const data = await apiFetch<string[]>("/prompts/attributes");
+    setAttributes(data);
+  }
+
   async function loadLLMModel() {
     const data = await apiFetch<LLMModelConfig>("/prompts/llm-model");
     setActiveModel(data.active_model);
@@ -82,7 +94,7 @@ export default function PromptsPage() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all([loadPrompts(), loadTracks(), loadLLMModel()]);
+      await Promise.all([loadPrompts(), loadTracks(), loadAttributes(), loadLLMModel()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -96,7 +108,7 @@ export default function PromptsPage() {
 
   useEffect(() => {
     void loadPrompts();
-  }, [filterTrack, filterEnabled, filterKeyword]);
+  }, [filterTrack, filterEnabled, filterKeyword, filterAttribute]);
 
   async function onSaveActiveModel(e: FormEvent) {
     e.preventDefault();
@@ -143,12 +155,14 @@ export default function PromptsPage() {
           track: createForm.track.trim(),
           name: createForm.name.trim(),
           content: createForm.content,
-          enabled: createForm.enabled
+          enabled: createForm.enabled,
+          llm_model: createForm.llm_model || null,
+          attribute: createForm.attribute || null,
         })
       });
       setEditingPromptId(created.id);
       setIsCreateOpen(false);
-      await Promise.all([loadPrompts(), loadTracks()]);
+      await Promise.all([loadPrompts(), loadTracks(), loadAttributes()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -173,11 +187,13 @@ export default function PromptsPage() {
           track: editForm.track.trim(),
           name: editForm.name.trim(),
           content: editForm.content,
-          enabled: editForm.enabled
+          enabled: editForm.enabled,
+          llm_model: editForm.llm_model || null,
+          attribute: editForm.attribute || null,
         })
       });
       setIsEditOpen(false);
-      await Promise.all([loadPrompts(), loadTracks()]);
+      await Promise.all([loadPrompts(), loadTracks(), loadAttributes()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -207,7 +223,7 @@ export default function PromptsPage() {
     setError("");
     try {
       await apiFetch(`/prompts/${prompt.id}`, { method: "DELETE" });
-      await Promise.all([loadPrompts(), loadTracks()]);
+      await Promise.all([loadPrompts(), loadTracks(), loadAttributes()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -221,7 +237,9 @@ export default function PromptsPage() {
       track: prompt.track,
       name: prompt.name,
       content: prompt.content,
-      enabled: prompt.enabled
+      enabled: prompt.enabled,
+      llm_model: prompt.llm_model || "",
+      attribute: prompt.attribute || ""
     });
     setError("");
     setIsEditOpen(true);
@@ -244,7 +262,7 @@ export default function PromptsPage() {
       {error ? <div className="errorBox">{error}</div> : null}
 
       <section className="card">
-        <h2>模型配置（全局单选）</h2>
+        <h2>默认模型配置（当提示词未绑定模型时生效）</h2>
         <form onSubmit={onSaveActiveModel} className="rowHeader">
           <select value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
             {supportedModels.map((model) => (
@@ -259,10 +277,16 @@ export default function PromptsPage() {
       <section className="card">
         <h2>提示词筛选</h2>
         <div className="rowHeader">
-          <select value={filterTrack} onChange={(e) => setFilterTrack(e.target.value)}>
+              <select value={filterTrack} onChange={(e) => setFilterTrack(e.target.value)}>
             <option value="">全部赛道</option>
             {tracks.map((track) => (
               <option key={track} value={track}>{track}</option>
+            ))}
+          </select>
+          <select value={filterAttribute} onChange={(e) => setFilterAttribute(e.target.value)}>
+            <option value="">全部属性</option>
+            {attributes.map((attribute) => (
+              <option key={attribute} value={attribute}>{attribute}</option>
             ))}
           </select>
           <select value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value)}>
@@ -275,7 +299,7 @@ export default function PromptsPage() {
             onChange={(e) => setFilterKeyword(e.target.value)}
             placeholder="按名称关键字筛选"
           />
-          <button type="button" onClick={() => { setFilterTrack(""); setFilterEnabled("all"); setFilterKeyword(""); }}>
+          <button type="button" onClick={() => { setFilterTrack(""); setFilterAttribute(""); setFilterEnabled("all"); setFilterKeyword(""); }}>
             重置
           </button>
         </div>
@@ -287,10 +311,12 @@ export default function PromptsPage() {
           <button type="button" onClick={openCreateModal}>新建提示词</button>
         </div>
         <div className="table">
-          <div className="thead">
+          <div className="thead trow8">
             <span>ID</span>
             <span>赛道</span>
+            <span>属性</span>
             <span>名称</span>
+            <span>模型</span>
             <span>状态</span>
             <span>更新时间</span>
             <span>操作</span>
@@ -298,11 +324,13 @@ export default function PromptsPage() {
           {prompts.map((prompt) => (
             <div
               key={prompt.id}
-              className="trow"
+              className="trow trow8"
             >
               <span>{prompt.id}</span>
               <span>{prompt.track}</span>
+              <span>{prompt.attribute || "-"}</span>
               <span>{prompt.name}</span>
+              <span>{prompt.llm_model ? MODEL_LABELS[prompt.llm_model] || prompt.llm_model : "默认"}</span>
               <span>{prompt.enabled ? "启用" : "禁用"}</span>
               <span>{prompt.updated_at.replace("T", " ").slice(0, 19)}</span>
               <span className="actions">
@@ -339,6 +367,11 @@ export default function PromptsPage() {
           <option key={track} value={track} />
         ))}
       </datalist>
+      <datalist id="prompt-attribute-options">
+        {attributes.map((attribute) => (
+          <option key={attribute} value={attribute} />
+        ))}
+      </datalist>
 
       {isCreateOpen ? (
         <div className="modalMask" onClick={closeCreateModal}>
@@ -364,6 +397,27 @@ export default function PromptsPage() {
                   onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="请输入提示词名称"
                 />
+              </div>
+              <div className="bindRow">
+                <span>属性（可选）</span>
+                <input
+                  list="prompt-attribute-options"
+                  value={createForm.attribute}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, attribute: e.target.value }))}
+                  placeholder="例如：情感分析"
+                />
+              </div>
+              <div className="bindRow">
+                <span>绑定模型</span>
+                <select
+                  value={createForm.llm_model}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, llm_model: e.target.value }))}
+                >
+                  <option value="">默认（使用全局模型）</option>
+                  {supportedModels.map((model) => (
+                    <option key={model} value={model}>{MODEL_LABELS[model] || model}</option>
+                  ))}
+                </select>
               </div>
               <label className="checkbox">
                 <input
@@ -411,6 +465,27 @@ export default function PromptsPage() {
                   onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="请输入提示词名称"
                 />
+              </div>
+              <div className="bindRow">
+                <span>属性（可选）</span>
+                <input
+                  list="prompt-attribute-options"
+                  value={editForm.attribute}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, attribute: e.target.value }))}
+                  placeholder="例如：情感分析"
+                />
+              </div>
+              <div className="bindRow">
+                <span>绑定模型</span>
+                <select
+                  value={editForm.llm_model}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, llm_model: e.target.value }))}
+                >
+                  <option value="">默认（使用全局模型）</option>
+                  {supportedModels.map((model) => (
+                    <option key={model} value={model}>{MODEL_LABELS[model] || model}</option>
+                  ))}
+                </select>
               </div>
               <label className="checkbox">
                 <input

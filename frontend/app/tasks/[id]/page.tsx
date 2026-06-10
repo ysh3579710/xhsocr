@@ -11,6 +11,19 @@ export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const taskId = Number(params.id);
+
+  const getBatchParams = () => {
+    if (typeof window === "undefined") return { batchId: null, taskPage: null };
+    const searchParams = new URLSearchParams(window.location.search);
+    return {
+      batchId: searchParams.get("batch_id"),
+      taskPage: searchParams.get("task_page"),
+    };
+  };
+
+  const { batchId, taskPage } = getBatchParams();
+  const batchQuery = batchId ? `?batch_id=${encodeURIComponent(batchId)}` : "";
+  const batchReturnQuery = batchId ? `${batchQuery}${taskPage ? `&task_page=${encodeURIComponent(taskPage)}` : ""}` : "";
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -115,7 +128,7 @@ export default function TaskDetailPage() {
     try {
       const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`)
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors${batchQuery}`)
       ]);
       setDetail(data);
       setEditedFullOutput(data.full_output || "");
@@ -133,7 +146,7 @@ export default function TaskDetailPage() {
     try {
       const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`)
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors${batchQuery}`)
       ]);
       setDetail(data);
       if (!dirtyRef.current && !editingRef.current) {
@@ -256,9 +269,9 @@ export default function TaskDetailPage() {
           <p>查看 OCR、书稿匹配与最终输出</p>
         </div>
         <div className="actions">
-          <Link className="linkBtn" href="/tasks">返回任务列表</Link>
-          <button onClick={() => router.push(`/tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
-          <button onClick={() => router.push(`/tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
+          <Link className="linkBtn" href={batchReturnQuery ? `/batches${batchReturnQuery}` : "/tasks"}>返回任务列表</Link>
+          <button onClick={() => router.push(`/tasks/${prevTaskId}${batchQuery}`)} disabled={!prevTaskId || loading}>上一篇</button>
+          <button onClick={() => router.push(`/tasks/${nextTaskId}${batchQuery}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
           {detail?.status === "success" ? (
             <button onClick={() => void onToggleFeatured()} disabled={loading}>

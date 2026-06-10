@@ -15,6 +15,10 @@ function sourceTypeLabel(note: FeaturedNote) {
   return "未知来源";
 }
 
+function displayAttribute(attribute: string) {
+  return attribute === "__NULL__" ? "无属性" : attribute;
+}
+
 export default function FeaturedNoteDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -23,6 +27,8 @@ export default function FeaturedNoteDetailPage() {
   const [detail, setDetail] = useState<FeaturedNote | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [attributes, setAttributes] = useState<string[]>([]);
+  const [selectedAttribute, setSelectedAttribute] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fullText, setFullText] = useState("");
@@ -43,15 +49,15 @@ export default function FeaturedNoteDetailPage() {
     setLoading(true);
     setError("");
     try {
-      const [data, bookData, promptData] = await Promise.all([
+      const [data, promptData, attributeData] = await Promise.all([
         apiFetch<FeaturedNote>(`/featured-notes/${noteId}`),
-        apiFetch<Book[]>("/books"),
         apiFetch<PromptItem[]>("/prompts?enabled=true"),
+        apiFetch<string[]>('/prompts/attributes'),
       ]);
       setDetail(data);
       setFullText(data.full_text);
-      setBooks(bookData);
       setPrompts(promptData);
+      setAttributes(attributeData);
       setIsDirty(false);
     } catch (e) {
       setError((e as Error).message);
@@ -63,6 +69,49 @@ export default function FeaturedNoteDetailPage() {
   useEffect(() => {
     void loadDetail();
   }, [noteId]);
+
+  async function loadPromptList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setPrompts([]);
+      setSpawnPromptId("");
+      return;
+    }
+
+    const params = new URLSearchParams({ enabled: "true" });
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const promptData = await apiFetch<PromptItem[]>(`/prompts?${params.toString()}`);
+    setPrompts(promptData);
+    if (spawnPromptId && !promptData.some((p) => p.id === spawnPromptId)) {
+      setSpawnPromptId("");
+    }
+  }
+
+  async function loadBookList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setBooks([]);
+      setSpawnBookId("");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const bookData = await apiFetch<Book[]>(`/books${params.toString() ? `?${params.toString()}` : ""}`);
+    setBooks(bookData);
+    if (spawnBookId && !bookData.some((b) => b.id === spawnBookId)) {
+      setSpawnBookId("");
+    }
+  }
+
+  useEffect(() => {
+    void loadPromptList();
+    void loadBookList();
+  }, [selectedAttribute, attributes.length]);
 
   async function onSave() {
     setLoading(true);
@@ -96,6 +145,7 @@ export default function FeaturedNoteDetailPage() {
   function openSpawnModal(kind: "rewrite" | "create" | "framework") {
     const defaultTitle = titlePreview || detail?.title || "";
     setSpawnMode(kind);
+    setSelectedAttribute("");
     setSpawnPromptId(pickPromptId(kind));
     if (kind === "create") {
       setSpawnTitle(defaultTitle);
@@ -320,10 +370,27 @@ export default function FeaturedNoteDetailPage() {
                     <span>标题</span>
                     <input value={spawnTitle} onChange={(e) => setSpawnTitle(e.target.value)} placeholder="请输入标题" />
                   </div>
+                  {attributes.length > 0 ? (
+                    <div className="bindRow">
+                      <span>属性</span>
+                      <select value={selectedAttribute} onChange={(e) => setSelectedAttribute(e.target.value)}>
+                        <option value="">选择属性（必选）</option>
+                        {attributes.map((attribute) => (
+                          <option key={attribute} value={attribute}>{displayAttribute(attribute)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   <div className="bindRow">
                     <span>提示词</span>
-                    <select value={spawnPromptId} onChange={(e) => setSpawnPromptId(e.target.value ? Number(e.target.value) : "")}>
-                      <option value="">选择提示词</option>
+                    <select
+                      value={spawnPromptId}
+                      onChange={(e) => setSpawnPromptId(e.target.value ? Number(e.target.value) : "")}
+                      disabled={attributes.length > 0 && !selectedAttribute}
+                    >
+                      <option value="">
+                        {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择提示词" : "选择提示词"}
+                      </option>
                       {prompts.map((p) => (
                         <option key={p.id} value={p.id}>[{p.track}] {p.name}</option>
                       ))}
@@ -331,7 +398,11 @@ export default function FeaturedNoteDetailPage() {
                   </div>
                   <div className="bindRow">
                     <span>绑定书稿</span>
-                    <select value={spawnBookId} onChange={(e) => setSpawnBookId(e.target.value ? Number(e.target.value) : "")}>
+                    <select
+                      value={spawnBookId}
+                      onChange={(e) => setSpawnBookId(e.target.value ? Number(e.target.value) : "")}
+                      disabled={attributes.length > 0 && !selectedAttribute}
+                    >
                       <option value="">不绑定书稿（可选）</option>
                       {books.map((book) => (
                         <option key={book.id} value={book.id}>{book.id} - {book.title}</option>
@@ -347,17 +418,38 @@ export default function FeaturedNoteDetailPage() {
                   </div>
                   <div className="bindRow">
                     <span>绑定书稿</span>
-                    <select value={spawnBookId} onChange={(e) => setSpawnBookId(e.target.value ? Number(e.target.value) : "")}>
+                    <select
+                      value={spawnBookId}
+                      onChange={(e) => setSpawnBookId(e.target.value ? Number(e.target.value) : "")}
+                      disabled={attributes.length > 0 && !selectedAttribute}
+                    >
                       <option value="">选择书稿</option>
                       {books.map((book) => (
                         <option key={book.id} value={book.id}>{book.id} - {book.title}</option>
                       ))}
                     </select>
                   </div>
+                  {attributes.length > 0 ? (
+                    <div className="bindRow">
+                      <span>属性</span>
+                      <select value={selectedAttribute} onChange={(e) => setSelectedAttribute(e.target.value)}>
+                        <option value="">选择属性（必选）</option>
+                        {attributes.map((attribute) => (
+                          <option key={attribute} value={attribute}>{displayAttribute(attribute)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   <div className="bindRow">
                     <span>提示词</span>
-                    <select value={spawnPromptId} onChange={(e) => setSpawnPromptId(e.target.value ? Number(e.target.value) : "")}>
-                      <option value="">选择提示词</option>
+                    <select
+                      value={spawnPromptId}
+                      onChange={(e) => setSpawnPromptId(e.target.value ? Number(e.target.value) : "")}
+                      disabled={attributes.length > 0 && !selectedAttribute}
+                    >
+                      <option value="">
+                        {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择提示词" : "选择提示词"}
+                      </option>
                       {prompts.map((p) => (
                         <option key={p.id} value={p.id}>[{p.track}] {p.name}</option>
                       ))}

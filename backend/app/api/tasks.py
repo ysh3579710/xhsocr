@@ -34,6 +34,7 @@ from app.schemas.tasks import (
     TaskListPageOut,
     TaskNeighborsOut,
 )
+from app.services.llm_settings import get_effective_llm_model
 from app.services.task_queue import enqueue_task
 from app.utils.sort import natural_sort_key
 
@@ -345,6 +346,7 @@ def create_tasks(
             book_title_snapshot=book_title_map.get(book_id),
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
+            llm_model=get_effective_llm_model(db, prompt.llm_model),
             status=TaskStatus.waiting,
         )
         db.add(task)
@@ -494,6 +496,7 @@ def create_framework_tasks(
             book_title_snapshot=book_title_map.get(book_id),
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
+            llm_model=get_effective_llm_model(db, prompt.llm_model),
             status=TaskStatus.waiting,
         )
         db.add(task)
@@ -609,6 +612,7 @@ def create_framework_custom_tasks(payload: FrameworkCustomBatchIn, db: Session =
             book_title_snapshot=book_title_map.get(book_id),
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
+            llm_model=get_effective_llm_model(db, prompt.llm_model),
             status=TaskStatus.waiting,
         )
         db.add(task)
@@ -697,6 +701,7 @@ def create_title_tasks(payload: CreateTaskBatchIn, db: Session = Depends(get_db)
             book_title_snapshot=book_title_snapshot,
             prompt_id=prompt.id,
             prompt_snapshot=prompt.content,
+            llm_model=get_effective_llm_model(db, prompt.llm_model),
             batch_id=batch.id if batch else None,
             status=TaskStatus.waiting,
         )
@@ -779,16 +784,29 @@ def list_tasks(
 
 
 @router.get("/{task_id}/neighbors", response_model=TaskNeighborsOut)
-def get_task_neighbors(task_id: int, db: Session = Depends(get_db)) -> TaskNeighborsOut:
+def get_task_neighbors(
+    task_id: int,
+    batch_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> TaskNeighborsOut:
     current = db.get(Task, task_id)
     if not current:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    task_ids = db.execute(
-        select(Task.id)
-        .where(Task.task_type == current.task_type)
-        .order_by(Task.created_at.desc())
-    ).scalars().all()
+    task_ids = []
+    if batch_id is not None:
+        task_ids = db.execute(
+            select(Task.id)
+            .where(Task.batch_id == batch_id)
+            .order_by(Task.created_at.desc())
+        ).scalars().all()
+    if not task_ids or task_id not in task_ids:
+        task_ids = db.execute(
+            select(Task.id)
+            .where(Task.task_type == current.task_type)
+            .order_by(Task.created_at.desc())
+        ).scalars().all()
+
     try:
         index = task_ids.index(task_id)
     except ValueError:

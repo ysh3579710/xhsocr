@@ -5,21 +5,37 @@ import { apiFetch } from "../../lib/api";
 import { formatBeijingDateTime } from "../../lib/time";
 import { Book } from "../../lib/types";
 
+function displayAttribute(attribute: string) {
+  return attribute === "__NULL__" ? "无属性" : attribute;
+}
+
 export default function BooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [bookFile, setBookFile] = useState<File | null>(null);
   const [bookTitle, setBookTitle] = useState("");
   const [bookAuthor, setBookAuthor] = useState("");
+  const [bookAttribute, setBookAttribute] = useState("");
+  const [attributes, setAttributes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [editingAttribute, setEditingAttribute] = useState<string>("");
+
+  async function loadAttributes() {
+    try {
+      const data = await apiFetch<string[]>('/prompts/attributes');
+      setAttributes(data);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   async function loadBooks() {
     setLoading(true);
     setError("");
     try {
-      const data = await apiFetch<Book[]>("/books");
+      const data = await apiFetch<Book[]>('/books');
       setBooks(data);
     } catch (e) {
       setError((e as Error).message);
@@ -29,6 +45,7 @@ export default function BooksPage() {
   }
 
   useEffect(() => {
+    void loadAttributes();
     void loadBooks();
   }, []);
 
@@ -42,10 +59,12 @@ export default function BooksPage() {
       fd.append("file", bookFile);
       if (bookTitle.trim()) fd.append("title", bookTitle.trim());
       if (bookAuthor.trim()) fd.append("author", bookAuthor.trim());
+      if (bookAttribute) fd.append("attribute", bookAttribute);
       await apiFetch("/books/upload", { method: "POST", body: fd });
       setBookFile(null);
       setBookTitle("");
       setBookAuthor("");
+      setBookAttribute("");
       await loadBooks();
     } catch (e) {
       setError((e as Error).message);
@@ -70,6 +89,7 @@ export default function BooksPage() {
   function openEdit(book: Book) {
     setEditingBookId(book.id);
     setEditingTitle(book.title);
+    setEditingAttribute(book.attribute ?? "");
     setError("");
   }
 
@@ -86,10 +106,11 @@ export default function BooksPage() {
       await apiFetch(`/books/${editingBookId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title, attribute: editingAttribute || null }),
       });
       setEditingBookId(null);
       setEditingTitle("");
+      setEditingAttribute("");
       await loadBooks();
     } catch (e) {
       setError((e as Error).message);
@@ -113,6 +134,16 @@ export default function BooksPage() {
           <input type="file" accept=".docx" onChange={(e) => setBookFile(e.target.files?.[0] || null)} required />
           <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="书名（可选）" />
           <input value={bookAuthor} onChange={(e) => setBookAuthor(e.target.value)} placeholder="作者（可选）" />
+          {attributes.length > 0 ? (
+            <select value={bookAttribute} onChange={(e) => setBookAttribute(e.target.value)}>
+              <option value="">选择属性（可选）</option>
+              {attributes.map((attribute) => (
+                <option key={attribute} value={attribute}>
+                  {displayAttribute(attribute)}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button type="submit" disabled={loading}>上传书稿</button>
         </form>
       </section>
@@ -123,6 +154,7 @@ export default function BooksPage() {
           <div className="thead">
             <span>ID</span>
             <span>书名</span>
+            <span>属性</span>
             <span>切片数</span>
             <span>创建时间</span>
             <span>操作</span>
@@ -131,6 +163,7 @@ export default function BooksPage() {
             <div key={b.id} className="trow">
               <span>{b.id}</span>
               <span>{b.title}</span>
+              <span>{b.attribute ? displayAttribute(b.attribute) : "无属性"}</span>
               <span>{b.segment_count}</span>
               <span>{formatBeijingDateTime(b.created_at)}</span>
               <span className="actions">
@@ -156,6 +189,16 @@ export default function BooksPage() {
                 onChange={(e) => setEditingTitle(e.target.value)}
                 placeholder="请输入书名"
               />
+              {attributes.length > 0 ? (
+                <select value={editingAttribute} onChange={(e) => setEditingAttribute(e.target.value)}>
+                  <option value="">选择属性（可选）</option>
+                  {attributes.map((attribute) => (
+                    <option key={attribute} value={attribute}>
+                      {displayAttribute(attribute)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <div className="actions">
                 <button onClick={() => void onSaveEdit()} disabled={loading}>保存</button>
               </div>

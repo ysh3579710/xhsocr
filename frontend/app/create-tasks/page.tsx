@@ -16,6 +16,10 @@ function parseTitles(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+function displayAttribute(attribute: string) {
+  return attribute === "__NULL__" ? "无属性" : attribute;
+}
+
 export default function CreateTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
@@ -34,6 +38,8 @@ export default function CreateTasksPage() {
   const [batchName, setBatchName] = useState("batch");
   const [bookId, setBookId] = useState<number | "">("");
   const [promptId, setPromptId] = useState<number | "">("");
+  const [attributes, setAttributes] = useState<string[]>([]);
+  const [selectedAttribute, setSelectedAttribute] = useState<string>("");
 
   const titleCount = useMemo(() => parseTitles(titlesText).length, [titlesText]);
   const hasPendingTasks = useMemo(
@@ -113,6 +119,48 @@ export default function CreateTasksPage() {
     return `/tasks?${params.toString()}`;
   }
 
+  async function loadPromptList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setPrompts([]);
+      setPromptId("");
+      return;
+    }
+
+    const params = new URLSearchParams({ enabled: "true" });
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const promptData = await apiFetch<PromptItem[]>(`/prompts?${params.toString()}`);
+    setPrompts(promptData);
+    if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
+      setPromptId(promptData[0].id);
+    } else if (promptData.length === 0) {
+      setPromptId("");
+    }
+  }
+
+  async function loadBookList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setBooks([]);
+      setBookId("");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const bookData = await apiFetch<Book[]>(`/books${params.toString() ? `?${params.toString()}` : ""}`);
+    setBooks(bookData);
+    if (bookData.length > 0 && (bookId === "" || !bookData.some((b) => b.id === bookId))) {
+      setBookId(bookData[0].id);
+    } else if (bookData.length === 0) {
+      setBookId("");
+    }
+  }
+
   async function loadTaskPage(options?: {
     page?: number;
     title?: string;
@@ -132,29 +180,20 @@ export default function CreateTasksPage() {
     try {
       const requests: [
         Promise<PaginatedResponse<Task>>,
-        Promise<Book[]> | null,
-        Promise<PromptItem[]> | null
+        Promise<string[]> | null
       ] = [
         apiFetch<PaginatedResponse<Task>>(buildTasksPath(nextPage, nextTitle)),
-        includeAuxiliary ? apiFetch<Book[]>("/books") : null,
-        includeAuxiliary ? apiFetch<PromptItem[]>("/prompts?enabled=true") : null,
+        includeAuxiliary ? apiFetch<string[]>("/prompts/attributes") : null,
       ];
-      const [taskPage, bookData, promptData] = await Promise.all(requests);
+      const [taskPage, attributeData] = await Promise.all(requests);
       setTasks(taskPage.items);
       setPage(taskPage.page);
       setTotal(taskPage.total);
       setTotalPages(taskPage.total_pages);
-      if (bookData) setBooks(bookData);
-      if (promptData) {
-        setPrompts(promptData);
-        if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-          const recentPrompt = taskPage.items.find(
-            (t) => t.task_type === "create" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id)
-          )?.prompt_id;
-          setPromptId(recentPrompt || promptData[0].id);
-        } else if (promptData.length === 0) {
-          setPromptId("");
-        }
+      if (attributeData) setAttributes(attributeData);
+      if (includeAuxiliary) {
+        await loadPromptList();
+        await loadBookList();
       }
       if (silent) setAutoRefreshError("");
     } catch (e) {
@@ -177,8 +216,13 @@ export default function CreateTasksPage() {
   }
 
   useEffect(() => {
-    void loadTaskPage({ includeAuxiliary: books.length === 0 || prompts.length === 0 });
+    void loadTaskPage({ includeAuxiliary: books.length === 0 || attributes.length === 0 });
   }, [page, keyword]);
+
+  useEffect(() => {
+    void loadPromptList();
+    void loadBookList();
+  }, [selectedAttribute, attributes.length]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
@@ -406,15 +450,37 @@ export default function CreateTasksPage() {
               />
               <p className="empty">标题数量：{titleCount}</p>
               <input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="批次名（多标题时生效）" />
-              <select value={promptId} onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">选择提示词（必选）</option>
+              {attributes.length > 0 ? (
+                <select value={selectedAttribute} onChange={(e) => setSelectedAttribute(e.target.value)}>
+                  <option value="">选择属性（必选）</option>
+                  {attributes.map((attribute) => (
+                    <option key={attribute} value={attribute}>
+                      {displayAttribute(attribute)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <select
+                value={promptId}
+                onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}
+                disabled={attributes.length > 0 && !selectedAttribute}
+              >
+                <option value="">
+                  {attributes.length > 0 && !selectedAttribute
+                    ? "先选择属性后再选择提示词"
+                    : "选择提示词（必选）"}
+                </option>
                 {prompts.map((p) => (
                   <option key={p.id} value={p.id}>
                     [{p.track}] {p.name}
                   </option>
                 ))}
               </select>
-              <select value={bookId} onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : "")}>
+              <select
+                value={bookId}
+                onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : "")}
+                disabled={attributes.length > 0 && !selectedAttribute}
+              >
                 <option value="">选择书稿（必选）</option>
                 {books.map((book) => (
                   <option key={book.id} value={book.id}>

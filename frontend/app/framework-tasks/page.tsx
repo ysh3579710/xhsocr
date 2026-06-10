@@ -77,6 +77,10 @@ function createEmptyCustomGroup(index: number, bookId?: number, promptId?: numbe
   };
 }
 
+function displayAttribute(attribute: string) {
+  return attribute === "__NULL__" ? "无属性" : attribute;
+}
+
 export default function FrameworkTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
@@ -96,6 +100,8 @@ export default function FrameworkTasksPage() {
   const [taskFiles, setTaskFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("批次");
   const [promptId, setPromptId] = useState<number | "">("");
+  const [attributes, setAttributes] = useState<string[]>([]);
+  const [selectedAttribute, setSelectedAttribute] = useState<string>("");
   const [folderBindings, setFolderBindings] = useState<Record<string, number>>({});
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -241,6 +247,49 @@ export default function FrameworkTasksPage() {
     return `/tasks?${params.toString()}`;
   }
 
+  async function loadPromptList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setPrompts([]);
+      setPromptId("");
+      setCustomGroups((prev) => prev.map((g) => ({ ...g, promptId: undefined })));
+      return;
+    }
+
+    const params = new URLSearchParams({ enabled: "true" });
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const promptData = await apiFetch<PromptItem[]>(`/prompts?${params.toString()}`);
+    setPrompts(promptData);
+    if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
+      setPromptId(promptData[0].id);
+    } else if (promptData.length === 0) {
+      setPromptId("");
+    }
+  }
+
+  async function loadBookList() {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setBooks([]);
+      setFolderBindings({});
+      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+      setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+      return;
+    }
+
+    const params = new URLSearchParams();
+    if (selectedAttribute) {
+      params.set("attribute", selectedAttribute);
+    }
+
+    const bookData = await apiFetch<Book[]>(`/books${params.toString() ? `?${params.toString()}` : ""}`);
+    setBooks(bookData);
+    setFolderBindings({});
+    setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+    setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+  }
+
   async function loadTaskPage(options?: {
     page?: number;
     title?: string;
@@ -260,29 +309,20 @@ export default function FrameworkTasksPage() {
     try {
       const requests: [
         Promise<PaginatedResponse<Task>>,
-        Promise<Book[]> | null,
-        Promise<PromptItem[]> | null
+        Promise<string[]> | null
       ] = [
         apiFetch<PaginatedResponse<Task>>(buildTasksPath(nextPage, nextTitle)),
-        includeAuxiliary ? apiFetch<Book[]>("/books") : null,
-        includeAuxiliary ? apiFetch<PromptItem[]>("/prompts?enabled=true") : null,
+        includeAuxiliary ? apiFetch<string[]>("/prompts/attributes") : null,
       ];
-      const [taskPage, bookData, promptData] = await Promise.all(requests);
+      const [taskPage, attributeData] = await Promise.all(requests);
       setTasks(taskPage.items);
       setPage(taskPage.page);
       setTotal(taskPage.total);
       setTotalPages(taskPage.total_pages);
-      if (bookData) setBooks(bookData);
-      if (promptData) {
-        setPrompts(promptData);
-        if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-          const recentPrompt = taskPage.items.find(
-            (t) => t.task_type === "framework" && t.prompt_id && promptData.some((p) => p.id === t.prompt_id)
-          )?.prompt_id;
-          setPromptId(recentPrompt || promptData[0].id);
-        } else if (promptData.length === 0) {
-          setPromptId("");
-        }
+      if (attributeData) setAttributes(attributeData);
+      if (includeAuxiliary) {
+        await loadPromptList();
+        await loadBookList();
       }
       if (silent) setAutoRefreshError("");
     } catch (e) {
@@ -305,8 +345,23 @@ export default function FrameworkTasksPage() {
   }
 
   useEffect(() => {
-    void loadTaskPage({ includeAuxiliary: books.length === 0 || prompts.length === 0 });
+    void loadTaskPage({ includeAuxiliary: books.length === 0 || attributes.length === 0 });
   }, [page, keyword]);
+
+  useEffect(() => {
+    if (attributes.length > 0 && !selectedAttribute) {
+      setPrompts([]);
+      setPromptId("");
+      setFolderBindings({});
+      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+      setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, promptId: undefined })));
+      return;
+    }
+
+    setCustomGroups((prev) => prev.map((g) => ({ ...g, promptId: undefined })));
+    void loadPromptList();
+    void loadBookList();
+  }, [selectedAttribute, attributes.length]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
@@ -334,6 +389,7 @@ export default function FrameworkTasksPage() {
     setTaskFiles([]);
     setFolderBindings({});
     setBatchName("批次");
+    setSelectedAttribute("");
     if (prompts.length > 0) {
       const recentPrompt = tasks.find((t) => t.task_type === "framework" && t.prompt_id && prompts.some((p) => p.id === t.prompt_id))
         ?.prompt_id;
@@ -892,9 +948,27 @@ export default function FrameworkTasksPage() {
 
             <form onSubmit={onCreateTask} className="stack">
               <input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="批次名（多组提交时生效）" />
+              {attributes.length > 0 ? (
+                <select value={selectedAttribute} onChange={(e) => setSelectedAttribute(e.target.value)}>
+                  <option value="">选择属性（必选）</option>
+                  {attributes.map((attribute) => (
+                    <option key={attribute} value={attribute}>
+                      {displayAttribute(attribute)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               {createMode !== "custom" ? (
-                <select value={promptId} onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}>
-                  <option value="">选择提示词（必选）</option>
+                <select
+                  value={promptId}
+                  onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}
+                  disabled={attributes.length > 0 && !selectedAttribute}
+                >
+                  <option value="">
+                    {attributes.length > 0 && !selectedAttribute
+                      ? "先选择属性后再选择提示词"
+                      : "选择提示词（必选）"}
+                  </option>
                   {prompts.map((p) => (
                     <option key={p.id} value={p.id}>
                       [{p.track}] {p.name}
@@ -939,6 +1013,7 @@ export default function FrameworkTasksPage() {
                         onChange={(e) =>
                           setFolderBindings((prev) => ({ ...prev, [folder]: Number(e.target.value) }))
                         }
+                        disabled={attributes.length > 0 && !selectedAttribute}
                       >
                         <option value="">选择书稿</option>
                         {books.map((book) => (
@@ -979,6 +1054,7 @@ export default function FrameworkTasksPage() {
                         <select
                           value={activePasteGroup.bookId || ""}
                           onChange={(e) => updateGroupBook(activePasteGroup.id, Number(e.target.value))}
+                          disabled={attributes.length > 0 && !selectedAttribute}
                         >
                           <option value="">选择书稿</option>
                           {books.map((book) => (
@@ -1050,6 +1126,7 @@ export default function FrameworkTasksPage() {
                         <select
                           value={activeCustomGroup.bookId || ""}
                           onChange={(e) => updateCustomGroup(activeCustomGroup.id, { bookId: Number(e.target.value) })}
+                          disabled={attributes.length > 0 && !selectedAttribute}
                         >
                           <option value="">选择书稿</option>
                           {books.map((book) => (
@@ -1064,8 +1141,13 @@ export default function FrameworkTasksPage() {
                         <select
                           value={activeCustomGroup.promptId || ""}
                           onChange={(e) => updateCustomGroup(activeCustomGroup.id, { promptId: Number(e.target.value) })}
+                          disabled={attributes.length > 0 && !selectedAttribute}
                         >
-                          <option value="">选择提示词</option>
+                          <option value="">
+                            {attributes.length > 0 && !selectedAttribute
+                              ? "先选择属性后再选择提示词"
+                              : "选择提示词"}
+                          </option>
                           {prompts.map((p) => (
                             <option key={p.id} value={p.id}>
                               [{p.track}] {p.name}

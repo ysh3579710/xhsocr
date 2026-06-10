@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -23,6 +23,7 @@ def _book_to_out(book: Book, segment_count: int) -> BookOut:
         id=book.id,
         title=book.title,
         author=book.author,
+        attribute=book.attribute,
         file_path=book.file_path,
         segment_count=segment_count,
         created_at=book.created_at,
@@ -34,6 +35,7 @@ def upload_book(
     file: UploadFile = File(...),
     title: Optional[str] = Form(default=None),
     author: Optional[str] = Form(default=None),
+    attribute: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
 ) -> BookUploadOut:
     suffix = Path(file.filename or "").suffix.lower()
@@ -53,9 +55,15 @@ def upload_book(
     entries = parse_docx_text(str(saved_path))
     segments = segment_book(entries)
 
+    book_attribute = None
+    if attribute:
+        attribute_value = attribute.strip()
+        if attribute_value and attribute_value != "__NULL__":
+            book_attribute = attribute_value
     book = Book(
         title=(title or Path(file.filename or "untitled").stem).strip() or "untitled",
         author=author.strip() if author else None,
+        attribute=book_attribute,
         file_path=str(saved_path),
     )
     db.add(book)
@@ -77,13 +85,18 @@ def upload_book(
 
 
 @router.get("", response_model=list[BookOut])
-def list_books(db: Session = Depends(get_db)) -> list[BookOut]:
-    stmt = (
-        select(Book, func.count(BookSegment.id).label("segment_count"))
-        .outerjoin(BookSegment, BookSegment.book_id == Book.id)
-        .group_by(Book.id)
-        .order_by(Book.created_at.desc())
-    )
+def list_books(
+    attribute: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[BookOut]:
+    stmt = select(Book, func.count(BookSegment.id).label("segment_count"))
+    if attribute is not None:
+        if attribute == "__NULL__":
+            stmt = stmt.where(Book.attribute.is_(None))
+        else:
+            stmt = stmt.where(Book.attribute == attribute.strip())
+    stmt = stmt.outerjoin(BookSegment, BookSegment.book_id == Book.id)
+    stmt = stmt.group_by(Book.id).order_by(Book.created_at.desc())
     rows = db.execute(stmt).all()
     return [_book_to_out(book, int(segment_count)) for book, segment_count in rows]
 
@@ -97,6 +110,9 @@ def update_book(book_id: int, payload: BookUpdateIn, db: Session = Depends(get_d
     if not title:
         raise HTTPException(status_code=400, detail="书名不能为空。")
     book.title = title
+    if payload.attribute is not None:
+        attribute_value = payload.attribute.strip()
+        book.attribute = attribute_value if attribute_value else None
     db.commit()
     db.refresh(book)
     segment_count = db.execute(select(func.count(BookSegment.id)).where(BookSegment.book_id == book.id)).scalar() or 0

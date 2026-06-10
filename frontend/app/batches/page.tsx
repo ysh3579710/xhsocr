@@ -8,10 +8,14 @@ import { Batch, PaginatedResponse, Task } from "../../lib/types";
 
 const PAGE_SIZE = 50;
 
-function taskDetailPath(task: Task): string {
-  if (task.task_type === "create") return `/create-tasks/${task.id}`;
-  if (task.task_type === "framework") return `/framework-tasks/${task.id}`;
-  return `/tasks/${task.id}`;
+function taskDetailPath(task: Task, batchId: number | null, taskPage: number): string {
+  const base = task.task_type === "create"
+    ? `/create-tasks/${task.id}`
+    : task.task_type === "framework"
+      ? `/framework-tasks/${task.id}`
+      : `/tasks/${task.id}`;
+  if (!batchId) return base;
+  return `${base}?batch_id=${encodeURIComponent(batchId)}&task_page=${encodeURIComponent(taskPage)}`;
 }
 
 export default function BatchesPage() {
@@ -21,7 +25,7 @@ export default function BatchesPage() {
   const [batchPage, setBatchPage] = useState(1);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchTotalPages, setBatchTotalPages] = useState(1);
-  const [taskPage, setTaskPage] = useState(1);
+  const [taskPage, setTaskPage] = useState<number>(1);
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskTotalPages, setTaskTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -53,12 +57,20 @@ export default function BatchesPage() {
       setBatchTotal(batchData.total);
       setBatchTotalPages(batchData.total_pages);
 
+      const params = new URLSearchParams(window.location.search);
+      const batchIdQuery = params.get("batch_id");
+      const taskPageQuery = params.get("task_page");
+      const queryBatchId = batchIdQuery ? Number(batchIdQuery) : null;
+      const queryTaskPage = taskPageQuery ? Number(taskPageQuery) : null;
       const hasSelectedOnPage = batchData.items.some((item) => item.id === selectedBatchId);
-      const activeBatchId = hasSelectedOnPage ? selectedBatchId : (batchData.items[0]?.id ?? null);
+      const activeBatchId = hasSelectedOnPage ? selectedBatchId : (queryBatchId ?? batchData.items[0]?.id ?? null);
       setSelectedBatchId(activeBatchId);
+      if (queryTaskPage && queryTaskPage !== taskPage) {
+        setTaskPage(queryTaskPage);
+      }
 
       if (activeBatchId) {
-        await loadBatchTasks(activeBatchId, hasSelectedOnPage ? nextTaskPage : 1);
+        await loadBatchTasks(activeBatchId, hasSelectedOnPage ? nextTaskPage : (queryTaskPage ?? taskPage));
       } else {
         setTasks([]);
         setTaskPage(1);
@@ -150,7 +162,7 @@ export default function BatchesPage() {
               <span>{t.folder_name}</span>
               <span>{t.book_name || (t.book_id ? `ID:${t.book_id}` : "-")}</span>
               <span>{t.status}</span>
-              <span><Link className="linkBtn" href={taskDetailPath(t)}>查看详情</Link></span>
+              <span><Link className="linkBtn" href={taskDetailPath(t, selectedBatchId, taskPage)}>查看详情</Link></span>
             </div>
           ))}
           {tasks.length === 0 ? <p className="empty">当前批次暂无子任务</p> : null}

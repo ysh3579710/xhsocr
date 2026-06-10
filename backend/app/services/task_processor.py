@@ -25,7 +25,7 @@ from app.services.ai_writer import (
     LLMClient,
     render_prompt_template,
 )
-from app.services.llm_settings import get_active_llm_model
+from app.services.llm_settings import get_active_llm_model, list_supported_llm_models
 from app.services.book_matcher import match_book_segments
 from app.services.ocr import extract_text_with_timeout, get_ocr_service
 
@@ -157,7 +157,8 @@ def process_task(task_id: int) -> None:
 
         task.status = TaskStatus.processing
         task.error_message = None
-        task.llm_model = get_active_llm_model(db)
+        if task.llm_model not in list_supported_llm_models():
+            task.llm_model = get_active_llm_model(db)
         _log(db, task_id, "queue", "info", "Task started.")
         if task.batch_id:
             _refresh_batch_status(db, task.batch_id)

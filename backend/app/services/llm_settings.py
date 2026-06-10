@@ -41,3 +41,9 @@ def set_active_llm_model(db: Session, model: str) -> str:
         db.add(AppSetting(key=LLM_MODEL_KEY, value=model_name))
     db.commit()
     return model_name
+
+
+def get_effective_llm_model(db: Session, prompt_llm_model: str | None) -> str:
+    if prompt_llm_model and prompt_llm_model in SUPPORTED_LLM_MODELS:
+        return prompt_llm_model
+    return get_active_llm_model(db)

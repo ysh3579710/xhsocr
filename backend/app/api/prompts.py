@@ -18,6 +18,8 @@ def _to_out(prompt: Prompt) -> PromptOut:
         name=prompt.name,
         content=prompt.content,
         enabled=prompt.enabled,
+        llm_model=prompt.llm_model,
+        attribute=prompt.attribute,
         created_at=prompt.created_at,
         updated_at=prompt.updated_at,
     )
@@ -53,9 +55,23 @@ def list_tracks(db: Session = Depends(get_db)) -> list[str]:
     return [r for r in rows if r]
 
 
+@router.get("/attributes", response_model=list[str])
+def list_attributes(db: Session = Depends(get_db)) -> list[str]:
+    rows = (
+        db.execute(select(Prompt.attribute).distinct().order_by(Prompt.attribute.asc()))
+        .scalars()
+        .all()
+    )
+    attributes = [r for r in rows if r]
+    if any(r is None for r in rows):
+        attributes.insert(0, "__NULL__")
+    return attributes
+
+
 @router.get("", response_model=list[PromptOut])
 def list_prompts(
     track: str | None = Query(default=None),
+    attribute: str | None = Query(default=None),
     enabled: bool | None = Query(default=None),
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -63,6 +79,11 @@ def list_prompts(
     stmt = select(Prompt)
     if track:
         stmt = stmt.where(Prompt.track == track.strip())
+    if attribute is not None:
+        if attribute == "__NULL__":
+            stmt = stmt.where(Prompt.attribute.is_(None))
+        else:
+            stmt = stmt.where(Prompt.attribute == attribute.strip())
     if enabled is not None:
         stmt = stmt.where(Prompt.enabled.is_(enabled))
     if q:
@@ -75,11 +96,18 @@ def list_prompts(
 
 @router.post("", response_model=PromptOut, status_code=status.HTTP_201_CREATED)
 def create_prompt(payload: PromptCreateIn, db: Session = Depends(get_db)) -> PromptOut:
+    llm_model = payload.llm_model.strip() if payload.llm_model and payload.llm_model.strip() else None
+    if llm_model is not None and llm_model not in list_supported_llm_models():
+        raise HTTPException(status_code=400, detail="Unsupported llm_model.")
+
+    attribute = payload.attribute.strip() if payload.attribute and payload.attribute.strip() else None
     prompt = Prompt(
         track=payload.track.strip(),
         name=payload.name.strip(),
         content=payload.content,
         enabled=payload.enabled,
+        llm_model=llm_model,
+        attribute=attribute,
     )
     db.add(prompt)
     try:
@@ -113,6 +141,13 @@ def update_prompt(prompt_id: int, payload: PromptUpdateIn, db: Session = Depends
         prompt.content = payload.content
     if payload.enabled is not None:
         prompt.enabled = payload.enabled
+    if payload.llm_model is not None:
+        llm_model = payload.llm_model.strip() if payload.llm_model.strip() else None
+        if llm_model is not None and llm_model not in list_supported_llm_models():
+            raise HTTPException(status_code=400, detail="Unsupported llm_model.")
+        prompt.llm_model = llm_model
+    if payload.attribute is not None:
+        prompt.attribute = payload.attribute.strip() if payload.attribute.strip() else None
 
     try:
         db.commit()

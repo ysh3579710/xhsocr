@@ -17,6 +17,7 @@ from app.schemas.featured_notes import (
     FeaturedNoteUpdateIn,
 )
 from app.schemas.tasks import TaskCreateOut
+from app.services.llm_settings import get_effective_llm_model
 from app.services.task_queue import enqueue_task
 
 router = APIRouter(prefix="/featured-notes", tags=["featured-notes"])
@@ -178,6 +179,7 @@ def spawn_rewrite_from_featured(note_id: int, payload: FeaturedNoteRewriteSpawnI
         book_title_snapshot=book_title,
         prompt_id=prompt.id,
         prompt_snapshot=prompt.content,
+        llm_model=get_effective_llm_model(db, prompt.llm_model),
         status=TaskStatus.waiting,
     )
     db.add(task)
@@ -213,6 +215,7 @@ def spawn_create_from_featured(note_id: int, payload: FeaturedNoteCreateSpawnIn,
         book_title_snapshot=book_title,
         prompt_id=prompt.id,
         prompt_snapshot=prompt.content,
+        llm_model=get_effective_llm_model(db, prompt.llm_model),
         status=TaskStatus.waiting,
     )
     db.add(task)
@@ -238,6 +241,7 @@ def spawn_framework_from_featured(note_id: int, payload: FeaturedNoteFrameworkSp
         book_title_snapshot=book_title,
         prompt_id=prompt.id,
         prompt_snapshot=prompt.content,
+        llm_model=get_effective_llm_model(db, prompt.llm_model),
         status=TaskStatus.waiting,
     )
     db.add(task)

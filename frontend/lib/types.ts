@@ -2,6 +2,7 @@ export type Book = {
   id: number;
   title: string;
   author?: string | null;
+  attribute?: string | null;
   file_path: string;
   segment_count: number;
   created_at: string;
@@ -57,6 +58,8 @@ export type PromptItem = {
   name: string;
   content: string;
   enabled: boolean;
+  llm_model?: string | null;
+  attribute?: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -8,6 +8,7 @@ class BookOut(BaseModel):
     id: int
     title: str
     author: Optional[str]
+    attribute: Optional[str] = None
     file_path: str
     segment_count: int
     created_at: datetime
@@ -19,3 +20,4 @@ class BookUploadOut(BookOut):
 
 class BookUpdateIn(BaseModel):
     title: str
+    attribute: Optional[str] = None

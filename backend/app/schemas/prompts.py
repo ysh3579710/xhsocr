@@ -9,6 +9,8 @@ class PromptCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     content: str = Field(min_length=1)
     enabled: bool = True
+    llm_model: Optional[str] = Field(default=None, min_length=1)
+    attribute: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class PromptUpdateIn(BaseModel):
@@ -16,6 +18,8 @@ class PromptUpdateIn(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=128)
     content: Optional[str] = Field(default=None, min_length=1)
     enabled: Optional[bool] = None
+    llm_model: Optional[str] = Field(default=None, min_length=1)
+    attribute: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class PromptOut(BaseModel):
@@ -24,6 +28,8 @@ class PromptOut(BaseModel):
     name: str
     content: str
     enabled: bool
+    llm_model: Optional[str] = None
+    attribute: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

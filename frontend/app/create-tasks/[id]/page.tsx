@@ -11,6 +11,19 @@ export default function CreateTaskDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const taskId = Number(params.id);
+
+  const getBatchParams = () => {
+    if (typeof window === "undefined") return { batchId: null, taskPage: null };
+    const searchParams = new URLSearchParams(window.location.search);
+    return {
+      batchId: searchParams.get("batch_id"),
+      taskPage: searchParams.get("task_page"),
+    };
+  };
+
+  const { batchId, taskPage } = getBatchParams();
+  const batchQuery = batchId ? `?batch_id=${encodeURIComponent(batchId)}` : "";
+  const batchReturnQuery = batchId ? `${batchQuery}${taskPage ? `&task_page=${encodeURIComponent(taskPage)}` : ""}` : "";
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -114,7 +127,7 @@ export default function CreateTaskDetailPage() {
     try {
       const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`)
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors${batchQuery}`)
       ]);
       if (data.task_type !== "create") {
         setError("该任务不是原创创作任务。");
@@ -137,7 +150,7 @@ export default function CreateTaskDetailPage() {
     try {
       const [data, neighbors] = await Promise.all([
         apiFetch<TaskDetail>(`/tasks/${taskId}`),
-        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors`)
+        apiFetch<TaskNeighbors>(`/tasks/${taskId}/neighbors${batchQuery}`)
       ]);
       if (data.task_type !== "create") return;
       setDetail(data);
@@ -256,9 +269,9 @@ export default function CreateTaskDetailPage() {
           <p>查看标题、原创正文及执行信息</p>
         </div>
         <div className="actions">
-          <Link className="linkBtn" href="/create-tasks">返回原创任务列表</Link>
-          <button onClick={() => router.push(`/create-tasks/${prevTaskId}`)} disabled={!prevTaskId || loading}>上一篇</button>
-          <button onClick={() => router.push(`/create-tasks/${nextTaskId}`)} disabled={!nextTaskId || loading}>下一篇</button>
+          <Link className="linkBtn" href={batchReturnQuery ? `/batches${batchReturnQuery}` : "/create-tasks"}>返回原创任务列表</Link>
+          <button onClick={() => router.push(`/create-tasks/${prevTaskId}${batchQuery}`)} disabled={!prevTaskId || loading}>上一篇</button>
+          <button onClick={() => router.push(`/create-tasks/${nextTaskId}${batchQuery}`)} disabled={!nextTaskId || loading}>下一篇</button>
           <button onClick={() => void loadDetail()} disabled={loading}>刷新</button>
           {detail?.status === "success" ? (
             <button onClick={() => void onToggleFeatured()} disabled={loading}>
