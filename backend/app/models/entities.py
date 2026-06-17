@@ -187,6 +187,7 @@ class TaskResult(Base):
     __tablename__ = "task_results"
 
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    raw_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     original_note_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     matched_book_segments: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     extracted_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

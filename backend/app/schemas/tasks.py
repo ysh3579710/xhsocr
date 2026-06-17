@@ -80,6 +80,7 @@ class TaskImageOut(BaseModel):
 
 class TaskDetailOut(TaskItemOut):
     images: list[TaskImageOut]
+    raw_output: Optional[str] = None
     original_note_text: Optional[str] = None
     matched_book_segments: Optional[dict] = None
     extracted_title: Optional[str] = None

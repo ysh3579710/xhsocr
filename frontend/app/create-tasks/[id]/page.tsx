@@ -324,6 +324,11 @@ export default function CreateTaskDetailPage() {
               </button>
             </div>
           </section>
+
+          <section className="card">
+            <h2>清洗前原始输出</h2>
+            <textarea readOnly rows={8} value={detail.raw_output || ""} />
+          </section>
         </>
       ) : null}
     </div>

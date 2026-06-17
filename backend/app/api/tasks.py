@@ -931,6 +931,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetailOut:
             )
             for image in sorted(task.images, key=lambda i: i.sort_index)
         ],
+        raw_output=task.result.raw_output if task.result else None,
         original_note_text=task.result.original_note_text if task.result else None,
         matched_book_segments=task.result.matched_book_segments if task.result else None,
         extracted_title=task.result.extracted_title if task.result else None,
@@ -1048,6 +1049,7 @@ def update_task_full_output(task_id: int, payload: TaskFullOutputUpdateIn, db: S
             )
             for image in sorted(task.images, key=lambda i: i.sort_index)
         ],
+        raw_output=task.result.raw_output if task.result else None,
         original_note_text=task.result.original_note_text if task.result else None,
         matched_book_segments=task.result.matched_book_segments if task.result else None,
         extracted_title=task.result.extracted_title if task.result else None,

@@ -336,6 +336,11 @@ export default function TaskDetailPage() {
           {showDetailBlocks ? (
             <>
               <section className="card">
+                <h2>清洗前原始输出</h2>
+                <textarea readOnly rows={8} value={detail.raw_output || ""} />
+              </section>
+
+              <section className="card">
                 <h2>OCR 原文</h2>
                 <textarea readOnly rows={6} value={detail.original_note_text || ""} />
               </section>

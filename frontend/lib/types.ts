@@ -31,6 +31,7 @@ export type Task = {
 
 export type TaskDetail = Task & {
   images: Array<{ id: number; file_name: string; sort_index: number; file_path: string }>;
+  raw_output?: string | null;
   original_note_text?: string | null;
   matched_book_segments?: {
     keywords?: string[];

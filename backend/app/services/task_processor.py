@@ -28,6 +28,7 @@ from app.services.ai_writer import (
 from app.services.llm_settings import get_active_llm_model, list_supported_llm_models
 from app.services.book_matcher import match_book_segments
 from app.services.ocr import extract_text_with_timeout, get_ocr_service
+from app.services.output_formatter import format_generated_output
 
 FRAMEWORK_OUTLINE_EXTRACT_MODEL = "openai/gpt-5.3-chat"
 
@@ -148,6 +149,24 @@ def _collapse_blank_lines(text: str) -> str:
     return normalized.strip()
 
 
+def _apply_formatted_output(db, task: Task, result: TaskResult, raw_output: str) -> None:
+    result.raw_output = raw_output
+    formatted = format_generated_output(
+        task_type=task.task_type,
+        raw_output=raw_output,
+        task_title=task.title,
+        extracted_title=result.extracted_title,
+    )
+    result.rewritten_note = formatted.full_output
+    result.full_output = formatted.full_output
+    result.intro_text = None
+    result.fixed_tags_text = None
+    result.random_tags_text = None
+    for warning in formatted.warnings:
+        _log(db, task.id, "format", "warning", warning)
+    _log(db, task.id, "format", "info", f"Output formatted with title_source={formatted.title_source}.")
+
+
 def process_task(task_id: int) -> None:
     db = SessionLocal()
     try:
@@ -157,7 +176,9 @@ def process_task(task_id: int) -> None:
 
         task.status = TaskStatus.processing
         task.error_message = None
-        if task.llm_model not in list_supported_llm_models():
+        if task.prompt_id is None and task.llm_model == settings.openrouter_model:
+            task.llm_model = get_active_llm_model(db)
+        elif task.llm_model not in list_supported_llm_models():
             task.llm_model = get_active_llm_model(db)
         _log(db, task_id, "queue", "info", "Task started.")
         if task.batch_id:
@@ -190,15 +211,11 @@ def process_task(task_id: int) -> None:
             )
 
             created_text = _collapse_blank_lines(llm.chat(create_prompt).strip())
-            result.rewritten_note = created_text
-            result.full_output = created_text
             result.original_note_text = None
             result.matched_book_segments = None
-            result.intro_text = None
-            result.fixed_tags_text = None
-            result.random_tags_text = None
             result.extracted_title = None
             result.extracted_points_text = None
+            _apply_formatted_output(db, task, result, created_text)
 
             _log_and_commit(db, task, "create", "info", "Create generation finished.")
             task.status = TaskStatus.success
@@ -365,11 +382,7 @@ def process_task(task_id: int) -> None:
             )
             final_text = llm.chat(final_prompt).strip()
         final_text = _collapse_blank_lines(final_text)
-        result.rewritten_note = final_text
-        result.intro_text = None
-        result.fixed_tags_text = None
-        result.random_tags_text = None
-        result.full_output = final_text
+        _apply_formatted_output(db, task, result, final_text)
         _log_and_commit(db, task, "write", "info", "Single prompt generation finished.")
 
         task.status = TaskStatus.success
