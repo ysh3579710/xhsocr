@@ -79,7 +79,7 @@ class TaskOutputFormattingTests(unittest.TestCase):
             "#原创 #写作",
         )
 
-    def test_create_task_keeps_generated_title_when_first_line_is_valid_title(self) -> None:
+    def test_create_task_uses_task_title_and_removes_duplicate_leading_title(self) -> None:
         task = Task(
             task_type=TaskType.create,
             title="创建任务标题",
@@ -92,7 +92,7 @@ class TaskOutputFormattingTests(unittest.TestCase):
         self.created_task_ids.append(task.id)
 
         raw_output = (
-            "模型生成标题更合适\n"
+            "创建任务标题\n"
             "正文第一段\n"
             "小红书推荐正文\n"
             "这是一段推荐正文。\n"
@@ -106,11 +106,80 @@ class TaskOutputFormattingTests(unittest.TestCase):
         result = self.db.get(TaskResult, task.id)
         self.assertEqual(
             result.full_output,
-            "模型生成标题更合适\n\n"
+            "创建任务标题\n\n"
             "正文第一段\n\n"
             "小红书推荐正文：\n"
             "这是一段推荐正文。\n\n"
             "#原创 #标题",
+        )
+
+    def test_create_task_removes_prefixed_duplicate_title_from_body_start(self) -> None:
+        task = Task(
+            task_type=TaskType.create,
+            title="我好像发现主谓宾定状补学生能全听懂的方法",
+            folder_name="测试原创任务标题前缀重复",
+            status=TaskStatus.waiting,
+            prompt_snapshot="{title}",
+        )
+        self.db.add(task)
+        self.db.commit()
+        self.created_task_ids.append(task.id)
+
+        raw_output = (
+            "标题：我好像发现主谓宾定状补学生能全听懂的方法\n"
+            "很多老师一讲语法就头疼。\n"
+            "小红书推荐正文\n"
+            "推荐正文。\n"
+            "#原创 #语法"
+        )
+        _StaticLLM.response = raw_output
+
+        with patch("app.services.task_processor.LLMClient", _StaticLLM):
+            process_task(task.id)
+
+        result = self.db.get(TaskResult, task.id)
+        self.assertEqual(
+            result.full_output,
+            "我好像发现主谓宾定状补学生能全听懂的方法\n\n"
+            "很多老师一讲语法就头疼。\n\n"
+            "小红书推荐正文：\n"
+            "推荐正文。\n\n"
+            "#原创 #语法",
+        )
+
+    def test_create_task_removes_split_title_label_and_value_from_body_start(self) -> None:
+        task = Task(
+            task_type=TaskType.create,
+            title="班主任累的原因是什么都管，还管得很认真",
+            folder_name="测试原创任务标题拆行重复",
+            status=TaskStatus.waiting,
+            prompt_snapshot="{title}",
+        )
+        self.db.add(task)
+        self.db.commit()
+        self.created_task_ids.append(task.id)
+
+        raw_output = (
+            "标题\n"
+            "班主任累的原因是什么都管，还管得很认真\n"
+            "很多老师从早忙到晚。\n"
+            "小红书推荐正文\n"
+            "推荐正文。\n"
+            "#原创 #班主任"
+        )
+        _StaticLLM.response = raw_output
+
+        with patch("app.services.task_processor.LLMClient", _StaticLLM):
+            process_task(task.id)
+
+        result = self.db.get(TaskResult, task.id)
+        self.assertEqual(
+            result.full_output,
+            "班主任累的原因是什么都管，还管得很认真\n\n"
+            "很多老师从早忙到晚。\n\n"
+            "小红书推荐正文：\n"
+            "推荐正文。\n\n"
+            "#原创 #班主任",
         )
 
     def test_ocr_task_keeps_single_line_title_and_exposes_raw_output_in_detail_api(self) -> None:
@@ -234,6 +303,49 @@ class TaskOutputFormattingTests(unittest.TestCase):
             "小红书推荐正文：\n"
             "这是一段推荐正文。\n\n"
             "#框架 #原创",
+        )
+
+    def test_framework_task_keeps_extracted_title_and_removes_prefixed_duplicate_title(self) -> None:
+        task = Task(
+            task_type=TaskType.framework,
+            folder_name="测试框架任务标题前缀重复",
+            status=TaskStatus.waiting,
+            book_id=self._first_book_id(),
+            prompt_snapshot="{title}\n{points}\n{outline}",
+        )
+        self.db.add(task)
+        self.db.flush()
+        self.db.add(
+            TaskResult(
+                task_id=task.id,
+                original_note_text="原始笔记",
+                extracted_title="框架正式标题",
+                extracted_points_text="观点一\n观点二",
+            )
+        )
+        self.db.commit()
+        self.created_task_ids.append(task.id)
+
+        raw_output = (
+            "大标题：框架正式标题\n"
+            "正文第一段\n"
+            "小红书推荐正文\n"
+            "推荐正文。\n"
+            "#框架 #标题"
+        )
+        _StaticLLM.response = raw_output
+
+        with patch("app.services.task_processor.LLMClient", _StaticLLM):
+            process_task(task.id)
+
+        result = self.db.get(TaskResult, task.id)
+        self.assertEqual(
+            result.full_output,
+            "框架正式标题\n\n"
+            "正文第一段\n\n"
+            "小红书推荐正文：\n"
+            "推荐正文。\n\n"
+            "#框架 #标题",
         )
 
 

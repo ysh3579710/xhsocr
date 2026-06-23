@@ -6,13 +6,15 @@ import re
 from app.models.entities import TaskType
 
 
-SEPARATOR_LINE_RE = re.compile(r"^\s*[-_*─—]{3,}\s*$")
+SEPARATOR_LINE_RE = re.compile(r"^\s*[-_*─━—－=~]{3,}\s*$")
 RECOMMENDATION_LABEL_RE = re.compile(r"^\s*(?:第?[一二三四五六七八九十0-9]+部分[:：]?\s*)?小红书推荐正文[:：]?\s*$")
 TAG_LABEL_RE = re.compile(r"^\s*(?:第?[一二三四五六七八九十0-9]+部分[:：]?\s*)?(?:小红书)?标签[:：]?\s*$")
 STRUCTURAL_SECTION_RE = re.compile(r"^\s*第?[一二三四五六七八九十0-9]+部分(?:[:：].*)?\s*$")
 OUTLINE_META_RE = re.compile(r"^\s*[一二三四五六七八九十]+、.*(?:开头|中段|结尾).*$")
 HASH_TAG_RE = re.compile(r"#([^\s#]+)")
 BODY_STARTERS = ("说真的", "我后来发现", "很多", "你有没有发现", "听写这件事", "做管理", "团队里", "一直以为")
+TITLE_PREFIX_RE = re.compile(r"^\s*(?:标题|题目|大标题)\s*[:：]?\s*")
+TITLE_LABEL_ONLY_RE = re.compile(r"^\s*(?:标题|题目|大标题)\s*$")
 
 
 @dataclass
@@ -238,6 +240,56 @@ def _remove_duplicate_leading_title(lines: list[str], title: str) -> list[str]:
     return lines
 
 
+def _normalize_title_text(text: str) -> str:
+    normalized = text.strip()
+    normalized = TITLE_PREFIX_RE.sub("", normalized)
+    normalized = normalized.strip()
+    normalized = normalized.rstrip("。！？!?；;：: ")
+    return normalized.strip()
+
+
+def _drop_leading_duplicate_title_block(lines: list[str], title: str) -> tuple[list[str], str | None]:
+    if not title:
+        return lines, None
+
+    target = _normalize_title_text(title)
+    if not target:
+        return lines, None
+
+    leading = _leading_nonempty(lines)
+    if not leading:
+        return lines, None
+
+    first_index, first_line = leading[0]
+    first_normalized = _normalize_title_text(first_line)
+    if first_normalized == target:
+        remaining = list(lines)
+        remaining[first_index] = ""
+        warning = "duplicate_title_with_prefix_removed" if TITLE_PREFIX_RE.match(first_line.strip()) else "duplicate_title_removed"
+        return _compact_blank_lines(remaining), warning
+
+    if TITLE_LABEL_ONLY_RE.match(first_line.strip()) and len(leading) >= 2:
+        second_index, second_line = leading[1]
+        if _normalize_title_text(second_line) == target:
+            remaining = list(lines)
+            remaining[first_index] = ""
+            remaining[second_index] = ""
+            return _compact_blank_lines(remaining), "duplicate_title_with_prefix_removed"
+
+    second_line = leading[1][1] if len(leading) >= 2 else None
+    if _looks_like_title_candidate(first_line) and second_line and _looks_like_body_line(second_line):
+        remaining = list(lines)
+        remaining[first_index] = ""
+        return _compact_blank_lines(remaining), "generated_title_mismatch"
+
+    if len(leading) >= 2:
+        candidate = f"{first_line.strip()} {leading[1][1].strip()}".strip()
+        if _normalize_title_text(candidate) == target:
+            return lines, "generated_title_mismatch"
+
+    return lines, None
+
+
 def _collapse_text(lines: list[str]) -> str:
     return "\n".join(_compact_blank_lines(lines)).strip()
 
@@ -257,21 +309,17 @@ def format_generated_output(
     title_source = "generated"
     title = ""
     if task_type == TaskType.create:
-        leading = _leading_nonempty(body_lines)
-        first_line = leading[0][1] if leading else ""
-        second_line = leading[1][1] if len(leading) > 1 else None
-        if first_line and (_is_complete_title(first_line, second_line) or _looks_like_title_candidate(first_line)):
-            title = first_line.strip()
-            title_source = "generated"
-            body_lines = _remove_duplicate_leading_title(body_lines, title)
-        else:
-            title = (task_title or "").strip()
-            title_source = "task_title"
-            body_lines = _remove_duplicate_leading_title(body_lines, title)
+        title = (task_title or "").strip()
+        title_source = "task_title"
+        body_lines, title_warning = _drop_leading_duplicate_title_block(body_lines, title)
+        if title_warning:
+            warnings.append(title_warning)
     elif task_type == TaskType.framework:
         title = (extracted_title or task_title or "").strip()
         title_source = "extracted_title" if extracted_title else "task_title"
-        body_lines = _remove_duplicate_leading_title(body_lines, title)
+        body_lines, title_warning = _drop_leading_duplicate_title_block(body_lines, title)
+        if title_warning:
+            warnings.append(title_warning)
     else:
         detected_title, remaining_body_lines, detected_source = _detect_ocr_title(body_lines)
         if detected_title:
@@ -302,7 +350,8 @@ def format_generated_output(
     sections = [title.strip()]
     if body_text:
         sections.append(body_text)
-    sections.append(f"小红书推荐正文：\n{intro_text}".strip())
+    if intro_text:
+        sections.append(f"小红书推荐正文：\n{intro_text}".strip())
     if tag_line:
         sections.append(tag_line)
     full_output = "\n\n".join([section for section in sections if section]).strip()
