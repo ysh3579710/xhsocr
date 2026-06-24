@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PaginationControls } from "../../components/pagination-controls";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, apiFetchResponse } from "../../lib/api";
 import { Batch, PaginatedResponse, Task } from "../../lib/types";
 
 const PAGE_SIZE = 50;
@@ -37,6 +37,43 @@ export default function BatchesPage() {
 
   function buildBatchTaskPath(batchId: number, pageValue: number) {
     return `/batch/${batchId}/tasks?page=${pageValue}&page_size=${PAGE_SIZE}`;
+  }
+
+  function getDownloadFilename(resp: Response, fallback: string): string {
+    const disposition = resp.headers.get("content-disposition") || "";
+    const mStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (mStar?.[1]) {
+      const raw = mStar[1].trim().replace(/^"|"$/g, "");
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    const m = disposition.match(/filename="?([^"]+)"?/i);
+    return m?.[1]?.trim() || fallback;
+  }
+
+  async function downloadBatch(batchId: number) {
+    setLoading(true);
+    setError("");
+    try {
+      const resp = await apiFetchResponse(`/batch/${batchId}/download`, { method: "POST" });
+      const blob = await resp.blob();
+      const name = getDownloadFilename(resp, `batch_${batchId}.zip`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadBatchTasks(batchId: number, nextTaskPage = taskPage) {
@@ -107,7 +144,7 @@ export default function BatchesPage() {
       <section className="card">
         <h2>批次列表</h2>
         <div className="table">
-          <div className="thead trow7">
+          <div className="thead trow8">
             <span>ID</span>
             <span>批次名</span>
             <span>类型</span>
@@ -115,11 +152,12 @@ export default function BatchesPage() {
             <span>总数</span>
             <span>成功</span>
             <span>失败</span>
+            <span>操作</span>
           </div>
           {batches.map((b) => (
             <div
               key={b.id}
-              className={`trow trow7 clickable ${selectedBatchId === b.id ? "active" : ""}`}
+              className={`trow trow8 clickable ${selectedBatchId === b.id ? "active" : ""}`}
               onClick={() => {
                 setSelectedBatchId(b.id);
                 setTaskPage(1);
@@ -132,6 +170,17 @@ export default function BatchesPage() {
               <span>{b.total_count}</span>
               <span>{b.success_count}</span>
               <span>{b.failed_count}</span>
+              <span className="tableActionCell">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void downloadBatch(b.id);
+                  }}
+                  disabled={loading || b.status === "waiting" || b.status === "processing"}
+                >
+                  下载当前批次
+                </button>
+              </span>
             </div>
           ))}
           {batches.length === 0 ? <p className="empty">暂无批次</p> : null}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import ArticleReadView, { ArticleColumnMode } from "../../../components/ArticleReadView";
 import { apiFetch, apiFetchResponse } from "../../../lib/api";
 import { TaskDetail, TaskNeighbors } from "../../../lib/types";
 import { formatBeijingDateTime } from "../../../lib/time";
@@ -32,11 +33,14 @@ export default function TaskDetailPage() {
   const [prevTaskId, setPrevTaskId] = useState<number | null>(null);
   const [nextTaskId, setNextTaskId] = useState<number | null>(null);
   const [editedFullOutput, setEditedFullOutput] = useState("");
+  const [columnMode, setColumnMode] = useState<ArticleColumnMode>("auto");
+  const [showBasicInfo, setShowBasicInfo] = useState(false);
   const [showDetailBlocks, setShowDetailBlocks] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const dirtyRef = useRef(false);
   const editingRef = useRef(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     dirtyRef.current = isDirty;
@@ -45,6 +49,13 @@ export default function TaskDetailPage() {
   useEffect(() => {
     editingRef.current = isEditing;
   }, [isEditing]);
+
+  useEffect(() => {
+    if (!isEditing || !editorRef.current) return;
+    const el = editorRef.current;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editedFullOutput, isEditing]);
 
   function showToast(message: string) {
     setToast(message);
@@ -237,12 +248,19 @@ export default function TaskDetailPage() {
       setDetail(updated);
       setEditedFullOutput(updated.full_output || "");
       setIsDirty(false);
+      setIsEditing(false);
       showToast("保存成功");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function onCancelEditing() {
+    setEditedFullOutput(detail?.full_output || "");
+    setIsDirty(false);
+    setIsEditing(false);
   }
 
   async function onToggleFeatured() {
@@ -262,7 +280,7 @@ export default function TaskDetailPage() {
   }
 
   return (
-    <div className="pageWrap">
+    <div className="pageWrap pageWrapWide">
       <header className="pageHeader rowHeader">
         <div>
           <h1>任务详情 #{taskId}</h1>
@@ -291,43 +309,68 @@ export default function TaskDetailPage() {
       {detail ? (
         <>
           <section className="card">
-            <h2>基础信息</h2>
-            <div className="kvGrid">
-              <div><strong>状态</strong><p>{detail.status}</p></div>
-              <div><strong>目录</strong><p>{detail.folder_name}</p></div>
-              <div><strong>书稿ID</strong><p>{detail.book_id}</p></div>
-              <div><strong>提示词</strong><p>{detail.prompt_name || "-"}</p></div>
-              <div><strong>提示词ID</strong><p>{detail.prompt_id ?? "-"}</p></div>
-              <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
-              <div><strong>创建时间（北京时间）</strong><p>{formatBeijingDateTime(detail.created_at)}</p></div>
-              <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
+            <div className="sectionHeaderRow">
+              <h2>基础信息</h2>
+              <button type="button" className="linkBtn" onClick={() => setShowBasicInfo((prev) => !prev)}>
+                {showBasicInfo ? "收起基础信息" : "展开基础信息"}
+              </button>
             </div>
+            {showBasicInfo ? (
+              <div className="kvGrid">
+                <div><strong>状态</strong><p>{detail.status}</p></div>
+                <div><strong>目录</strong><p>{detail.folder_name}</p></div>
+                <div><strong>书稿ID</strong><p>{detail.book_id}</p></div>
+                <div><strong>提示词</strong><p>{detail.prompt_name || "-"}</p></div>
+                <div><strong>提示词ID</strong><p>{detail.prompt_id ?? "-"}</p></div>
+                <div><strong>本次模型</strong><p>{detail.llm_model || "-"}</p></div>
+                <div><strong>创建时间（北京时间）</strong><p>{formatBeijingDateTime(detail.created_at)}</p></div>
+                <div><strong>重试次数</strong><p>{detail.retry_count}</p></div>
+              </div>
+            ) : (
+              <p className="collapsedSummary">
+                状态：{detail.status}　目录：{detail.folder_name || "-"}　本次模型：{detail.llm_model || "-"}　重试次数：{detail.retry_count}
+              </p>
+            )}
           </section>
 
           <section className="card">
-            <h2>AI 结果</h2>
+            <div className="sectionHeaderRow">
+              <h2>AI 结果</h2>
+              <div className="actions">
+                {isEditing ? (
+                  <button type="button" className="linkBtn" onClick={onCancelEditing}>
+                    取消编辑
+                  </button>
+                ) : (
+                  <button type="button" className="linkBtn" onClick={() => setIsEditing(true)}>
+                    编辑正文
+                  </button>
+                )}
+                <button type="button" className="linkBtn" onClick={() => setShowDetailBlocks((prev) => !prev)}>
+                  {showDetailBlocks ? "收起详情" : "展开详情"}
+                </button>
+              </div>
+            </div>
             <div className="stack">
               <label>最终文本</label>
-              <textarea
-                rows={18}
-                value={editedFullOutput}
-                onFocus={() => setIsEditing(true)}
-                onBlur={() => setIsEditing(false)}
-                onChange={(e) => {
-                  setEditedFullOutput(e.target.value);
-                  setIsDirty(true);
-                }}
-              />
+              {isEditing ? (
+                <textarea
+                  ref={editorRef}
+                  className="editorArea"
+                  value={editedFullOutput}
+                  onChange={(e) => {
+                    setEditedFullOutput(e.target.value);
+                    setIsDirty(true);
+                  }}
+                />
+              ) : (
+                <ArticleReadView text={editedFullOutput} mode={columnMode} onModeChange={setColumnMode} />
+              )}
               <div className="actions">
-                <button onClick={() => void onSaveFullOutput()} disabled={loading}>保存</button>
+                <button onClick={() => void onSaveFullOutput()} disabled={loading || !isDirty}>保存</button>
                 <button onClick={() => void copyText(editedFullOutput)}>复制最终文本</button>
                 <button onClick={() => void downloadCurrentTask()} disabled={loading || !editedFullOutput.trim()}>
                   {detail.download_count > 0 ? "重新下载" : "下载"}
-                </button>
-              </div>
-              <div className="actions">
-                <button type="button" className="linkBtn" onClick={() => setShowDetailBlocks((prev) => !prev)}>
-                  {showDetailBlocks ? "收起详情" : "展开详情"}
                 </button>
               </div>
             </div>

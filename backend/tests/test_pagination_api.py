@@ -1,7 +1,9 @@
 import unittest
+import io
+import zipfile
 
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.db.session import SessionLocal
 from app.main import app
@@ -16,6 +18,13 @@ class PaginationApiTests(unittest.TestCase):
         self.created_task_ids: list[int] = []
         self.created_batch_ids: list[int] = []
         self.created_featured_ids: list[int] = []
+        stale_task_ids = self.db.execute(
+            select(Task.id).where(Task.folder_name.like(f"{self.prefix}%"))
+        ).scalars().all()
+        if stale_task_ids:
+            self.db.execute(delete(TaskResult).where(TaskResult.task_id.in_(stale_task_ids)))
+            self.db.execute(delete(Task).where(Task.id.in_(stale_task_ids)))
+            self.db.commit()
 
     def tearDown(self) -> None:
         self.db.rollback()
@@ -153,6 +162,58 @@ class PaginationApiTests(unittest.TestCase):
         self.assertEqual(data["total"], 3)
         self.assertEqual(data["total_pages"], 2)
         self.assertEqual(len(data["items"]), 2)
+
+    def test_batch_download_rejects_when_tasks_are_still_running(self) -> None:
+        batch_id = self._create_batch("下载中批次", BatchType.ocr)
+        task = Task(
+            task_type=TaskType.ocr,
+            folder_name="进行中任务",
+            batch_id=batch_id,
+            status=TaskStatus.processing,
+        )
+        self.db.add(task)
+        self.db.flush()
+        self.db.add(TaskResult(task_id=task.id, full_output="标题\n正文"))
+        self.db.commit()
+        self.created_task_ids.append(task.id)
+
+        response = self.client.post(f"/batch/{batch_id}/download")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("进行中的任务", response.text)
+
+    def test_batch_download_exports_only_tasks_with_full_output_after_completion(self) -> None:
+        batch_id = self._create_batch("可下载批次", BatchType.ocr)
+        self._create_task(task_type=TaskType.ocr, folder_name="成功任务A", full_output="标题A\n正文A", batch_id=batch_id)
+        self._create_task(task_type=TaskType.ocr, folder_name="成功任务B", full_output="标题B\n正文B", batch_id=batch_id)
+        self._create_task(task_type=TaskType.ocr, folder_name="空任务", full_output=None, batch_id=batch_id)
+
+        response = self.client.post(f"/batch/{batch_id}/download")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/zip")
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+          names = zf.namelist()
+          self.assertEqual(len(names), 2)
+          contents = [zf.read(name).decode("utf-8") for name in names]
+          self.assertIn("标题A\n正文A", contents)
+          self.assertIn("标题B\n正文B", contents)
+
+    def test_retry_resets_download_markers_for_new_result_version(self) -> None:
+        task_id = self._create_task(task_type=TaskType.ocr, folder_name="重试下载状态任务", full_output="标题\n正文")
+
+        download_response = self.client.get(f"/tasks/{task_id}/download")
+        self.assertEqual(download_response.status_code, 200)
+
+        retry_response = self.client.post(f"/tasks/{task_id}/retry")
+        self.assertEqual(retry_response.status_code, 200)
+        retry_data = retry_response.json()
+        self.assertEqual(retry_data["download_count"], 0)
+        self.assertEqual(retry_data["retry_count"], 1)
+
+        result = self.db.get(TaskResult, task_id)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.download_count, 0)
+        self.assertIsNone(result.last_downloaded_at)
 
 
 if __name__ == "__main__":

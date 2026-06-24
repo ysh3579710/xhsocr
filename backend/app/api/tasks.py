@@ -93,6 +93,46 @@ def _content_disposition_header(file_name: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
+def _build_tasks_zip_response(tasks: list[Task], *, empty_detail: str, file_name: str | None = None, db: Session) -> Response:
+    zip_buffer = io.BytesIO()
+    used_names: dict[str, int] = {}
+    downloaded_tasks: list[Task] = []
+    task_types: set[str] = set()
+
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for task in tasks:
+            if not task.result or not (task.result.full_output or "").strip():
+                continue
+            base_name = _single_download_filename(task)
+            count = used_names.get(base_name, 0)
+            used_names[base_name] = count + 1
+            if count > 0:
+                stem = Path(base_name).stem
+                ext = Path(base_name).suffix or ".txt"
+                zip_entry_name = f"{stem}_{count + 1}{ext}"
+            else:
+                zip_entry_name = base_name
+            zf.writestr(zip_entry_name, task.result.full_output or "")
+            downloaded_tasks.append(task)
+            task_types.add(task.task_type.value)
+
+    if not downloaded_tasks:
+        raise HTTPException(status_code=400, detail=empty_detail)
+
+    now = datetime.now(timezone.utc)
+    for task in downloaded_tasks:
+        assert task.result is not None
+        task.result.download_count = (task.result.download_count or 0) + 1
+        task.result.last_downloaded_at = now
+    db.commit()
+
+    zip_buffer.seek(0)
+    headers = {
+        "Content-Disposition": _content_disposition_header(file_name or _zip_download_filename(task_types))
+    }
+    return Response(content=zip_buffer.getvalue(), media_type="application/zip", headers=headers)
+
+
 def _first_nonempty_line(value: str | None) -> str | None:
     if not value:
         return None
@@ -409,7 +449,7 @@ def create_tasks(
 def create_framework_tasks(
     bindings: str = Form(..., description="JSON array: [{folder_name, book_id}]"),
     files: list[UploadFile] = File(...),
-    prompt_id: int = Form(...),
+    prompt_id: Optional[int] = Form(default=None),
     batch_name: Optional[str] = Form(default=None),
     auto_enqueue: bool = Form(default=True),
     db: Session = Depends(get_db),
@@ -446,11 +486,25 @@ def create_framework_tasks(
     books = db.execute(select(Book).where(Book.id.in_(set(binding_map.values())))).scalars().all()
     book_title_map = {b.id: b.title for b in books}
 
-    prompt = db.get(Prompt, prompt_id)
-    if not prompt:
-        raise HTTPException(status_code=400, detail="prompt_id not found.")
-    if not prompt.enabled:
-        raise HTTPException(status_code=400, detail="Prompt is disabled and cannot be selected.")
+    binding_prompt_map: dict[str, int | None] = {}
+    prompt_ids: set[int] = set()
+    for item in binding_items:
+        effective_prompt_id = item.prompt_id if item.prompt_id is not None else prompt_id
+        if effective_prompt_id is None:
+            raise HTTPException(status_code=400, detail=f"Prompt is required for folder: {item.folder_name}")
+        binding_prompt_map[item.folder_name] = effective_prompt_id
+        prompt_ids.add(effective_prompt_id)
+
+    prompts = db.execute(select(Prompt).where(Prompt.id.in_(prompt_ids))).scalars().all()
+    prompt_map = {p.id: p for p in prompts}
+    if set(prompt_map) != prompt_ids:
+        raise HTTPException(status_code=400, detail="Some prompt_id does not exist.")
+    disabled_prompts = [p.name for p in prompts if not p.enabled]
+    if disabled_prompts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Prompt is disabled and cannot be selected: {', '.join(disabled_prompts)}",
+        )
 
     files_by_folder: dict[str, list[UploadFile]] = {}
     for up in files:
@@ -488,15 +542,16 @@ def create_framework_tasks(
 
     created_tasks: list[Task] = []
     for folder_name, book_id in binding_map.items():
+        selected_prompt = prompt_map[binding_prompt_map[folder_name]]
         task = Task(
             task_type=TaskType.framework,
             batch_id=batch.id if batch else None,
             folder_name=folder_name,
             book_id=book_id,
             book_title_snapshot=book_title_map.get(book_id),
-            prompt_id=prompt.id,
-            prompt_snapshot=prompt.content,
-            llm_model=get_effective_llm_model(db, prompt.llm_model),
+            prompt_id=selected_prompt.id,
+            prompt_snapshot=selected_prompt.content,
+            llm_model=get_effective_llm_model(db, selected_prompt.llm_model),
             status=TaskStatus.waiting,
         )
         db.add(task)
@@ -823,44 +878,12 @@ def download_tasks_batch(payload: TaskDownloadBatchIn, db: Session = Depends(get
     unique_ids = list(dict.fromkeys(payload.task_ids))
     stmt = select(Task).options(selectinload(Task.result)).where(Task.id.in_(unique_ids))
     task_map = {t.id: t for t in db.execute(stmt).scalars().all()}
-
-    zip_buffer = io.BytesIO()
-    used_names: dict[str, int] = {}
-    downloaded_tasks: list[Task] = []
-    task_types: set[str] = set()
-
-    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for task_id in unique_ids:
-            task = task_map.get(task_id)
-            if not task or not task.result or not (task.result.full_output or "").strip():
-                continue
-            base_name = _single_download_filename(task)
-            count = used_names.get(base_name, 0)
-            used_names[base_name] = count + 1
-            if count > 0:
-                stem = Path(base_name).stem
-                ext = Path(base_name).suffix or ".txt"
-                file_name = f"{stem}_{count + 1}{ext}"
-            else:
-                file_name = base_name
-            zf.writestr(file_name, task.result.full_output or "")
-            downloaded_tasks.append(task)
-            task_types.add(task.task_type.value)
-
-    if not downloaded_tasks:
-        raise HTTPException(status_code=400, detail="No downloadable tasks with full output.")
-
-    now = datetime.now(timezone.utc)
-    for task in downloaded_tasks:
-        assert task.result is not None
-        task.result.download_count = (task.result.download_count or 0) + 1
-        task.result.last_downloaded_at = now
-    db.commit()
-
-    zip_buffer.seek(0)
-    filename = _zip_download_filename(task_types)
-    headers = {"Content-Disposition": _content_disposition_header(filename)}
-    return Response(content=zip_buffer.getvalue(), media_type="application/zip", headers=headers)
+    ordered_tasks = [task_map[task_id] for task_id in unique_ids if task_id in task_map]
+    return _build_tasks_zip_response(
+        ordered_tasks,
+        empty_detail="No downloadable tasks with full output.",
+        db=db,
+    )
 
 
 @router.get("/{task_id}/download")
@@ -1073,6 +1096,9 @@ def retry_task(task_id: int, force: bool = Query(default=False), db: Session = D
     task.status = TaskStatus.waiting
     task.error_message = None
     task.retry_count += 1
+    if task.result:
+        task.result.download_count = 0
+        task.result.last_downloaded_at = None
     db.commit()
     db.refresh(task)
 

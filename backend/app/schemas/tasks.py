@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class TaskBindingIn(BaseModel):
     folder_name: str
     book_id: int
+    prompt_id: Optional[int] = None
 
 
 class TaskCreateOut(BaseModel):

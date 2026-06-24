@@ -17,10 +17,25 @@ type PastedImage = {
   previewUrl: string;
 };
 
+type GroupDefaults = {
+  bookId?: number;
+  track?: string;
+  promptId?: number;
+};
+
+type FolderGroup = {
+  name: string;
+  bookId?: number;
+  track: string;
+  promptId?: number;
+};
+
 type PastedGroup = {
   id: string;
   name: string;
   bookId?: number;
+  track: string;
+  promptId?: number;
   images: PastedImage[];
 };
 
@@ -57,11 +72,22 @@ function sanitizeFolderName(input: string) {
   return safe || "group";
 }
 
-function createEmptyPasteGroup(index: number, bookId?: number): PastedGroup {
+function createEmptyFolderGroup(name: string, defaults?: GroupDefaults): FolderGroup {
+  return {
+    name,
+    bookId: defaults?.bookId,
+    track: defaults?.track || "",
+    promptId: defaults?.promptId,
+  };
+}
+
+function createEmptyPasteGroup(index: number, defaults?: GroupDefaults): PastedGroup {
   return {
     id: createId(),
     name: `任务-${index}`,
-    bookId,
+    bookId: defaults?.bookId,
+    track: defaults?.track || "",
+    promptId: defaults?.promptId,
     images: []
   };
 }
@@ -102,7 +128,8 @@ export default function FrameworkTasksPage() {
   const [promptId, setPromptId] = useState<number | "">("");
   const [attributes, setAttributes] = useState<string[]>([]);
   const [selectedAttribute, setSelectedAttribute] = useState<string>("");
-  const [folderBindings, setFolderBindings] = useState<Record<string, number>>({});
+  const [folderGroups, setFolderGroups] = useState<FolderGroup[]>([]);
+  const [activeFolderGroupName, setActiveFolderGroupName] = useState("");
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const [pasteGroups, setPasteGroups] = useState<PastedGroup[]>([createEmptyPasteGroup(1)]);
@@ -111,6 +138,12 @@ export default function FrameworkTasksPage() {
   const [activeCustomGroupId, setActiveCustomGroupId] = useState<string>("");
   const pasteZoneRef = useRef<HTMLDivElement | null>(null);
   const pasteSeqRef = useRef(0);
+
+  useEffect(() => {
+    if (!activeFolderGroupName && folderGroups.length > 0) {
+      setActiveFolderGroupName(folderGroups[0].name);
+    }
+  }, [activeFolderGroupName, folderGroups]);
 
   useEffect(() => {
     if (!activeGroupId && pasteGroups.length > 0) {
@@ -124,6 +157,11 @@ export default function FrameworkTasksPage() {
     }
   }, [activeCustomGroupId, customGroups]);
 
+  const activeFolderGroup = useMemo(
+    () => folderGroups.find((g) => g.name === activeFolderGroupName) || null,
+    [folderGroups, activeFolderGroupName]
+  );
+
   const activePasteGroup = useMemo(
     () => pasteGroups.find((g) => g.id === activeGroupId) || null,
     [pasteGroups, activeGroupId]
@@ -134,11 +172,7 @@ export default function FrameworkTasksPage() {
     [customGroups, activeCustomGroupId]
   );
 
-  const folderNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const f of taskFiles) set.add(extractFolderName(f));
-    return Array.from(set).sort();
-  }, [taskFiles]);
+  const folderNames = useMemo(() => folderGroups.map((group) => group.name), [folderGroups]);
 
   const folderFileCount = useMemo(() => {
     const countMap: Record<string, number> = {};
@@ -149,11 +183,20 @@ export default function FrameworkTasksPage() {
     return countMap;
   }, [taskFiles]);
 
+  const availableTracks = useMemo(() => {
+    return Array.from(new Set(prompts.map((prompt) => prompt.track))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [prompts]);
+
   const hasUnsavedCreateData = useMemo(() => {
     if (taskFiles.length > 0) return true;
     if (pasteGroups.some((g) => g.images.length > 0)) return true;
     return customGroups.some((g) => g.title.trim() || g.pointsText.trim());
   }, [taskFiles, pasteGroups, customGroups]);
+
+  const submitReadyFolderGroups = useMemo(
+    () => folderGroups.filter((g) => (folderFileCount[g.name] || 0) > 0),
+    [folderGroups, folderFileCount]
+  );
 
   const submitReadyGroups = useMemo(
     () => pasteGroups.filter((g) => g.images.length > 0),
@@ -169,6 +212,19 @@ export default function FrameworkTasksPage() {
     () => tasks.some((t) => t.status === "waiting" || t.status === "processing"),
     [tasks]
   );
+
+  useEffect(() => {
+    const nextNames = Array.from(new Set(taskFiles.map((file) => extractFolderName(file)))).sort();
+    setFolderGroups((prev) => {
+      const prevMap = new Map(prev.map((group) => [group.name, group]));
+      return nextNames.map((name) => prevMap.get(name) || createEmptyFolderGroup(name));
+    });
+    if (nextNames.length === 0) {
+      setActiveFolderGroupName("");
+      return;
+    }
+    setActiveFolderGroupName((current) => (current && nextNames.includes(current) ? current : nextNames[0]));
+  }, [taskFiles]);
 
   function showModalToast(message: string) {
     setModalToast(message);
@@ -188,6 +244,27 @@ export default function FrameworkTasksPage() {
     }
     const m = disposition.match(/filename="?([^"]+)"?/i);
     return m?.[1]?.trim() || fallback;
+  }
+
+  function promptsForTrack(track: string) {
+    return track ? prompts.filter((prompt) => prompt.track === track) : [];
+  }
+
+  function isFolderGroupReady(group: FolderGroup) {
+    return Boolean((folderFileCount[group.name] || 0) > 0 && group.bookId && group.track && group.promptId);
+  }
+
+  function isPasteGroupReady(group: PastedGroup) {
+    return Boolean(group.images.length > 0 && group.bookId && group.track && group.promptId);
+  }
+
+  function isCustomGroupReady(group: CustomGroup) {
+    return Boolean(
+      group.bookId &&
+      group.promptId &&
+      group.title.trim() &&
+      group.pointsText.split("\n").some((line) => line.trim())
+    );
   }
 
   async function downloadSingleTask(task: Task) {
@@ -251,6 +328,8 @@ export default function FrameworkTasksPage() {
     if (attributes.length > 0 && !selectedAttribute) {
       setPrompts([]);
       setPromptId("");
+      setFolderGroups((prev) => prev.map((g) => ({ ...g, track: "", promptId: undefined })));
+      setPasteGroups((prev) => prev.map((g) => ({ ...g, track: "", promptId: undefined })));
       setCustomGroups((prev) => prev.map((g) => ({ ...g, promptId: undefined })));
       return;
     }
@@ -272,7 +351,7 @@ export default function FrameworkTasksPage() {
   async function loadBookList() {
     if (attributes.length > 0 && !selectedAttribute) {
       setBooks([]);
-      setFolderBindings({});
+      setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
       setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
       setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
       return;
@@ -285,7 +364,7 @@ export default function FrameworkTasksPage() {
 
     const bookData = await apiFetch<Book[]>(`/books${params.toString() ? `?${params.toString()}` : ""}`);
     setBooks(bookData);
-    setFolderBindings({});
+    setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
     setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
     setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
   }
@@ -352,8 +431,8 @@ export default function FrameworkTasksPage() {
     if (attributes.length > 0 && !selectedAttribute) {
       setPrompts([]);
       setPromptId("");
-      setFolderBindings({});
-      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
+      setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, track: "", promptId: undefined })));
+      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, track: "", promptId: undefined })));
       setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, promptId: undefined })));
       return;
     }
@@ -362,6 +441,35 @@ export default function FrameworkTasksPage() {
     void loadPromptList();
     void loadBookList();
   }, [selectedAttribute, attributes.length]);
+
+  useEffect(() => {
+    const promptMap = new Map(prompts.map((prompt) => [prompt.id, prompt]));
+    const validTracks = new Set(prompts.map((prompt) => prompt.track));
+
+    setFolderGroups((prev) =>
+      prev.map((group) => {
+        const nextTrack = group.track && validTracks.has(group.track) ? group.track : "";
+        const prompt = group.promptId ? promptMap.get(group.promptId) : undefined;
+        const nextPromptId = prompt && (!nextTrack || prompt.track === nextTrack) ? group.promptId : undefined;
+        return nextTrack === group.track && nextPromptId === group.promptId
+          ? group
+          : { ...group, track: nextTrack, promptId: nextPromptId };
+      })
+    );
+    setPasteGroups((prev) =>
+      prev.map((group) => {
+        const nextTrack = group.track && validTracks.has(group.track) ? group.track : "";
+        const prompt = group.promptId ? promptMap.get(group.promptId) : undefined;
+        const nextPromptId = prompt && (!nextTrack || prompt.track === nextTrack) ? group.promptId : undefined;
+        return nextTrack === group.track && nextPromptId === group.promptId
+          ? group
+          : { ...group, track: nextTrack, promptId: nextPromptId };
+      })
+    );
+    setCustomGroups((prev) =>
+      prev.map((group) => (group.promptId && !promptMap.has(group.promptId) ? { ...group, promptId: undefined } : group))
+    );
+  }, [prompts]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
@@ -387,7 +495,8 @@ export default function FrameworkTasksPage() {
       for (const img of g.images) URL.revokeObjectURL(img.previewUrl);
     }
     setTaskFiles([]);
-    setFolderBindings({});
+    setFolderGroups([]);
+    setActiveFolderGroupName("");
     setBatchName("批次");
     setSelectedAttribute("");
     if (prompts.length > 0) {
@@ -504,11 +613,8 @@ export default function FrameworkTasksPage() {
 
   function removeFolder(folder: string) {
     setTaskFiles((prev) => prev.filter((f) => extractFolderName(f) !== folder));
-    setFolderBindings((prev) => {
-      const next = { ...prev };
-      delete next[folder];
-      return next;
-    });
+    setFolderGroups((prev) => prev.filter((group) => group.name !== folder));
+    setActiveFolderGroupName((current) => (current === folder ? "" : current));
   }
 
   function switchCreateMode(mode: CreateMode) {
@@ -516,8 +622,8 @@ export default function FrameworkTasksPage() {
     setError("");
   }
 
-  function onCreateNextPasteGroup(defaultBookId?: number) {
-    const next = createEmptyPasteGroup(pasteGroups.length + 1, defaultBookId);
+  function onCreateNextPasteGroup(defaults?: GroupDefaults) {
+    const next = createEmptyPasteGroup(pasteGroups.length + 1, defaults);
     setPasteGroups((prev) => [...prev, next]);
     setActiveGroupId(next.id);
   }
@@ -528,17 +634,64 @@ export default function FrameworkTasksPage() {
     setActiveCustomGroupId(next.id);
   }
 
+  function onCompleteCurrentFolderGroup() {
+    if (!activeFolderGroup) return;
+    if (!activeFolderGroup.bookId) {
+      showModalToast("需要绑定书稿才能进入下一组。");
+      return;
+    }
+    if (!activeFolderGroup.track) {
+      showModalToast("需要选择赛道才能进入下一组。");
+      return;
+    }
+    if (!activeFolderGroup.promptId) {
+      showModalToast("需要选择提示词才能进入下一组。");
+      return;
+    }
+    const currentIndex = folderGroups.findIndex((group) => group.name === activeFolderGroup.name);
+    const nextGroup = folderGroups[currentIndex + 1];
+    if (!nextGroup) {
+      showModalToast("已经是最后一组。");
+      return;
+    }
+    setFolderGroups((prev) =>
+      prev.map((group, index) =>
+        index === currentIndex + 1
+          ? {
+              ...group,
+              bookId: group.bookId ?? activeFolderGroup.bookId,
+              track: group.track || activeFolderGroup.track,
+              promptId: group.promptId ?? activeFolderGroup.promptId,
+            }
+          : group
+      )
+    );
+    setActiveFolderGroupName(nextGroup.name);
+  }
+
   function onCompleteCurrentGroup() {
     if (!activePasteGroup) return;
     if (!activePasteGroup.bookId) {
       showModalToast("需要绑定书稿才能创建下一组。");
       return;
     }
+    if (!activePasteGroup.track) {
+      showModalToast("需要选择赛道才能创建下一组。");
+      return;
+    }
+    if (!activePasteGroup.promptId) {
+      showModalToast("需要选择提示词才能创建下一组。");
+      return;
+    }
     if (activePasteGroup.images.length === 0) {
       showModalToast("请上传图片后再创建下一组。");
       return;
     }
-    onCreateNextPasteGroup(activePasteGroup.bookId);
+    onCreateNextPasteGroup({
+      bookId: activePasteGroup.bookId,
+      track: activePasteGroup.track,
+      promptId: activePasteGroup.promptId,
+    });
   }
 
   function onCompleteCurrentCustomGroup() {
@@ -562,6 +715,22 @@ export default function FrameworkTasksPage() {
     onCreateNextCustomGroup(activeCustomGroup.bookId, activeCustomGroup.promptId);
   }
 
+  function updateFolderGroup(groupName: string, patch: Partial<FolderGroup>) {
+    setFolderGroups((prev) =>
+      prev.map((group) => {
+        if (group.name !== groupName) return group;
+        const next = { ...group, ...patch };
+        if (patch.track !== undefined) {
+          const selectedPrompt = next.promptId ? prompts.find((prompt) => prompt.id === next.promptId) : undefined;
+          if (!selectedPrompt || selectedPrompt.track !== next.track) {
+            next.promptId = undefined;
+          }
+        }
+        return next;
+      })
+    );
+  }
+
   function updateGroupName(groupId: string, name: string) {
     setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, name } : g)));
   }
@@ -570,8 +739,54 @@ export default function FrameworkTasksPage() {
     setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, bookId } : g)));
   }
 
+  function updateGroupTrack(groupId: string, track: string) {
+    setPasteGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+        const selectedPrompt = group.promptId ? prompts.find((prompt) => prompt.id === group.promptId) : undefined;
+        return {
+          ...group,
+          track,
+          promptId: selectedPrompt && selectedPrompt.track === track ? group.promptId : undefined,
+        };
+      })
+    );
+  }
+
+  function updateGroupPrompt(groupId: string, value: number) {
+    setPasteGroups((prev) =>
+      prev.map((group) => (group.id === groupId ? { ...group, promptId: value || undefined } : group))
+    );
+  }
+
   function updateCustomGroup(groupId: string, patch: Partial<CustomGroup>) {
     setCustomGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
+  }
+
+  function copyCurrentPasteGroup() {
+    if (!activePasteGroup) return;
+    if (activePasteGroup.images.length === 0) {
+      showModalToast("当前组没有图片可复制。");
+      return;
+    }
+    const copiedImages = activePasteGroup.images
+      .slice()
+      .sort((a, b) => a.pastedAt - b.pastedAt)
+      .map((image, index) => ({
+        id: createId(),
+        file: image.file,
+        pastedAt: Date.now() * 1000 + index + 1,
+        previewUrl: URL.createObjectURL(image.file),
+      }));
+    const next = createEmptyPasteGroup(pasteGroups.length + 1, {
+      bookId: activePasteGroup.bookId,
+      track: activePasteGroup.track,
+      promptId: activePasteGroup.promptId,
+    });
+    next.images = copiedImages;
+    setPasteGroups((prev) => [...prev, next]);
+    setActiveGroupId(next.id);
+    showModalToast("已复制到新组。");
   }
 
   function removeGroup(groupId: string) {
@@ -660,24 +875,36 @@ export default function FrameworkTasksPage() {
       setError("请先上传目录");
       return false;
     }
-    for (const folder of folderNames) {
-      if (!folderBindings[folder]) {
-        setError(`目录 ${folder} 未绑定书稿`);
+    for (const group of folderGroups) {
+      if ((folderFileCount[group.name] || 0) === 0) continue;
+      if (!group.bookId) {
+        setError(`目录 ${group.name} 未绑定书稿`);
         return false;
       }
-    }
-    if (!promptId) {
-      setError("请选择提示词。");
-      return false;
+      if (!group.track) {
+        setError(`目录 ${group.name} 未选择赛道`);
+        return false;
+      }
+      if (!group.promptId) {
+        setError(`目录 ${group.name} 未选择提示词`);
+        return false;
+      }
     }
 
     const fd = new FormData();
     fd.append(
       "bindings",
-      JSON.stringify(folderNames.map((folder) => ({ folder_name: folder, book_id: folderBindings[folder] })))
+      JSON.stringify(
+        folderGroups
+          .filter((group) => (folderFileCount[group.name] || 0) > 0)
+          .map((group) => ({
+            folder_name: group.name,
+            book_id: group.bookId,
+            prompt_id: group.promptId,
+          }))
+      )
     );
     fd.append("batch_name", batchName || "batch");
-    fd.append("prompt_id", String(promptId));
     fd.append("auto_enqueue", "true");
     for (const file of taskFiles) {
       const rel = (file as UploadFile).webkitRelativePath || file.name;
@@ -688,40 +915,29 @@ export default function FrameworkTasksPage() {
   }
 
   async function submitPasteTasks(): Promise<boolean> {
-    const groups = pasteGroups;
+    const groups = pasteGroups.filter((group) => group.images.length > 0);
     if (groups.length === 0) {
       showModalToast("请上传图片后再提交");
       return false;
     }
-    if (groups.length === 1) {
-      const onlyGroup = groups[0];
-      if (!onlyGroup.bookId) {
-        showModalToast("请先绑定书稿后再提交");
+    for (const group of groups) {
+      if (!group.bookId) {
+        showModalToast(`请先为 ${group.name} 绑定书稿后再提交`);
         return false;
       }
-      if (onlyGroup.images.length === 0) {
-        showModalToast("请上传图片后再提交");
+      if (!group.track) {
+        showModalToast(`请先为 ${group.name} 选择赛道后再提交`);
         return false;
       }
-    } else {
-      const lastGroup = groups[groups.length - 1];
-      if (!lastGroup.bookId) {
-        showModalToast("请先绑定书稿后再提交");
+      if (!group.promptId) {
+        showModalToast(`请先为 ${group.name} 选择提示词后再提交`);
         return false;
       }
-      if (lastGroup.images.length === 0) {
-        showModalToast("请上传图片后再提交");
-        return false;
-      }
-    }
-    if (!promptId) {
-      showModalToast("请选择提示词。");
-      return false;
     }
 
     const fd = new FormData();
     const usedNames = new Set<string>();
-    const bindings: Array<{ folder_name: string; book_id: number }> = [];
+    const bindings: Array<{ folder_name: string; book_id: number; prompt_id: number }> = [];
 
     for (const g of groups) {
       let base = sanitizeFolderName(g.name);
@@ -732,7 +948,7 @@ export default function FrameworkTasksPage() {
         i += 1;
       }
       usedNames.add(name);
-      bindings.push({ folder_name: name, book_id: g.bookId as number });
+      bindings.push({ folder_name: name, book_id: g.bookId as number, prompt_id: g.promptId as number });
 
       const ordered = [...g.images].sort((a, b) => a.pastedAt - b.pastedAt);
       ordered.forEach((img, idx) => {
@@ -744,7 +960,6 @@ export default function FrameworkTasksPage() {
 
     fd.append("bindings", JSON.stringify(bindings));
     fd.append("batch_name", batchName || "batch");
-    fd.append("prompt_id", String(promptId));
     fd.append("auto_enqueue", "true");
     await apiFetch<TaskCreateResponse>("/tasks/framework", { method: "POST", body: fd });
     return true;
@@ -958,24 +1173,6 @@ export default function FrameworkTasksPage() {
                   ))}
                 </select>
               ) : null}
-              {createMode !== "custom" ? (
-                <select
-                  value={promptId}
-                  onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : "")}
-                  disabled={attributes.length > 0 && !selectedAttribute}
-                >
-                  <option value="">
-                    {attributes.length > 0 && !selectedAttribute
-                      ? "先选择属性后再选择提示词"
-                      : "选择提示词（必选）"}
-                  </option>
-                  {prompts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      [{p.track}] {p.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
 
               {createMode === "folder" ? (
                 <>
@@ -993,37 +1190,86 @@ export default function FrameworkTasksPage() {
                   <div className="actions">
                     <button type="button" onClick={onChooseDirectory} disabled={loading}>选择并追加目录</button>
                   </div>
-                  {folderNames.length > 0 ? (
+                  {folderGroups.length > 0 ? (
                     <div className="stack">
-                      {folderNames.map((folder) => (
-                        <div key={folder} className="bindRow">
-                          <span>{folder}（{folderFileCount[folder] || 0} 张）</span>
-                          <button type="button" onClick={() => removeFolder(folder)} disabled={loading}>移除目录</button>
-                        </div>
-                      ))}
+                      <div className="pasteGroupList">
+                        {folderGroups.map((group) => (
+                          <button
+                            key={group.name}
+                            type="button"
+                            className={group.name === activeFolderGroupName ? "groupChip active" : "groupChip"}
+                            onClick={() => setActiveFolderGroupName(group.name)}
+                          >
+                            {group.name}（{folderFileCount[group.name] || 0}）
+                          </button>
+                        ))}
+                      </div>
+                      {activeFolderGroup ? (
+                        <>
+                          <div className="bindRow">
+                            <span>当前目录</span>
+                            <span>{activeFolderGroup.name}（{folderFileCount[activeFolderGroup.name] || 0} 张）</span>
+                            <button type="button" onClick={() => removeFolder(activeFolderGroup.name)} disabled={loading}>移除目录</button>
+                          </div>
+                          <div className="bindRow">
+                            <span>绑定书稿</span>
+                            <select
+                              value={activeFolderGroup.bookId || ""}
+                              onChange={(e) => updateFolderGroup(activeFolderGroup.name, { bookId: Number(e.target.value) || undefined })}
+                              disabled={attributes.length > 0 && !selectedAttribute}
+                            >
+                              <option value="">选择书稿</option>
+                              {books.map((book) => (
+                                <option key={book.id} value={book.id}>
+                                  {book.id} - {book.title}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="bindRow">
+                            <span>赛道</span>
+                            <select
+                              value={activeFolderGroup.track}
+                              onChange={(e) => updateFolderGroup(activeFolderGroup.name, { track: e.target.value })}
+                              disabled={attributes.length > 0 && !selectedAttribute}
+                            >
+                              <option value="">
+                                {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择赛道" : "选择赛道"}
+                              </option>
+                              {availableTracks.map((track) => (
+                                <option key={track} value={track}>
+                                  {track}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="bindRow">
+                            <span>提示词</span>
+                            <select
+                              value={activeFolderGroup.promptId || ""}
+                              onChange={(e) => updateFolderGroup(activeFolderGroup.name, { promptId: Number(e.target.value) || undefined })}
+                              disabled={attributes.length > 0 && !selectedAttribute}
+                            >
+                              <option value="">
+                                {activeFolderGroup.track ? "选择提示词" : "先选择赛道后再选择提示词"}
+                              </option>
+                              {promptsForTrack(activeFolderGroup.track).map((prompt) => (
+                                <option key={prompt.id} value={prompt.id}>
+                                  [{prompt.track}] {prompt.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="actions">
+                            <button type="button" onClick={onCompleteCurrentFolderGroup} disabled={loading}>完成本组并进入下一组</button>
+                          </div>
+                          <p className="empty">可提交目录组数：{submitReadyFolderGroups.length}</p>
+                        </>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="empty">暂未选择目录</p>
                   )}
-                  {folderNames.map((folder) => (
-                    <div key={folder} className="bindRow">
-                      <span>{folder}</span>
-                      <select
-                        value={folderBindings[folder] || ""}
-                        onChange={(e) =>
-                          setFolderBindings((prev) => ({ ...prev, [folder]: Number(e.target.value) }))
-                        }
-                        disabled={attributes.length > 0 && !selectedAttribute}
-                      >
-                        <option value="">选择书稿</option>
-                        {books.map((book) => (
-                          <option key={book.id} value={book.id}>
-                            {book.id} - {book.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
                 </>
               ) : createMode === "paste" ? (
                 <div className="stack">
@@ -1064,6 +1310,40 @@ export default function FrameworkTasksPage() {
                           ))}
                         </select>
                       </div>
+                      <div className="bindRow">
+                        <span>赛道</span>
+                        <select
+                          value={activePasteGroup.track}
+                          onChange={(e) => updateGroupTrack(activePasteGroup.id, e.target.value)}
+                          disabled={attributes.length > 0 && !selectedAttribute}
+                        >
+                          <option value="">
+                            {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择赛道" : "选择赛道"}
+                          </option>
+                          {availableTracks.map((track) => (
+                            <option key={track} value={track}>
+                              {track}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="bindRow">
+                        <span>提示词</span>
+                        <select
+                          value={activePasteGroup.promptId || ""}
+                          onChange={(e) => updateGroupPrompt(activePasteGroup.id, Number(e.target.value))}
+                          disabled={attributes.length > 0 && !selectedAttribute}
+                        >
+                          <option value="">
+                            {activePasteGroup.track ? "选择提示词" : "先选择赛道后再选择提示词"}
+                          </option>
+                          {promptsForTrack(activePasteGroup.track).map((prompt) => (
+                            <option key={prompt.id} value={prompt.id}>
+                              [{prompt.track}] {prompt.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <div
                         ref={pasteZoneRef}
                         className="pasteZone"
@@ -1074,6 +1354,7 @@ export default function FrameworkTasksPage() {
                       </div>
                       <div className="actions">
                         <button type="button" onClick={onCompleteCurrentGroup} disabled={loading}>完成本组并新建下一组</button>
+                        <button type="button" onClick={copyCurrentPasteGroup} disabled={loading || activePasteGroup.images.length === 0}>复制本组</button>
                         <button type="button" onClick={() => removeGroup(activePasteGroup.id)} disabled={loading}>删除本组</button>
                       </div>
                       {activePasteGroup.images.length > 0 ? (
