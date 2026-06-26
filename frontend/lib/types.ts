@@ -50,6 +50,7 @@ export type Batch = {
   success_count: number;
   failed_count: number;
   status: string;
+  download_count: number;
   created_at: string;
 };
 

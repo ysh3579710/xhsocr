@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PaginationControls } from "../../components/pagination-controls";
-import { apiFetch, apiFetchResponse } from "../../lib/api";
+import { apiFetch } from "../../lib/api";
 import { Batch, PaginatedResponse, Task } from "../../lib/types";
 
 const PAGE_SIZE = 50;
@@ -30,6 +30,9 @@ export default function BatchesPage() {
   const [taskTotalPages, setTaskTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const downloadFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const downloadResetTimerRef = useRef<number | null>(null);
+  const downloadRefreshTimerRef = useRef<number | null>(null);
 
   function buildBatchPath(pageValue: number) {
     return `/batch?page=${pageValue}&page_size=${PAGE_SIZE}`;
@@ -39,41 +42,59 @@ export default function BatchesPage() {
     return `/batch/${batchId}/tasks?page=${pageValue}&page_size=${PAGE_SIZE}`;
   }
 
-  function getDownloadFilename(resp: Response, fallback: string): string {
-    const disposition = resp.headers.get("content-disposition") || "";
-    const mStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-    if (mStar?.[1]) {
-      const raw = mStar[1].trim().replace(/^"|"$/g, "");
+  function ensureDownloadFrame(): HTMLIFrameElement {
+    if (downloadFrameRef.current) return downloadFrameRef.current;
+    const frame = document.createElement("iframe");
+    frame.name = "batch-download-frame";
+    frame.style.display = "none";
+    frame.setAttribute("aria-hidden", "true");
+    frame.addEventListener("load", () => {
+      setLoading(false);
       try {
-        return decodeURIComponent(raw);
+        const text = frame.contentDocument?.body?.innerText?.trim() || "";
+        if (!text) return;
+        try {
+          const payload = JSON.parse(text);
+          const detail = typeof payload?.detail === "string" ? payload.detail : text;
+          setError(detail);
+        } catch {
+          setError(text);
+        }
       } catch {
-        return raw;
+        // Ignore iframe inspection failures for successful attachment downloads.
       }
-    }
-    const m = disposition.match(/filename="?([^"]+)"?/i);
-    return m?.[1]?.trim() || fallback;
+    });
+    document.body.appendChild(frame);
+    downloadFrameRef.current = frame;
+    return frame;
   }
 
   async function downloadBatch(batchId: number) {
-    setLoading(true);
     setError("");
-    try {
-      const resp = await apiFetchResponse(`/batch/${batchId}/download`, { method: "POST" });
-      const blob = await resp.blob();
-      const name = getDownloadFilename(resp, `batch_${batchId}.zip`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    const frame = ensureDownloadFrame();
+    if (downloadResetTimerRef.current) {
+      window.clearTimeout(downloadResetTimerRef.current);
     }
+    if (downloadRefreshTimerRef.current) {
+      window.clearTimeout(downloadRefreshTimerRef.current);
+    }
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = `/api/batch/${batchId}/download`;
+    form.target = frame.name;
+    form.style.display = "none";
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+    downloadResetTimerRef.current = window.setTimeout(() => {
+      setLoading(false);
+      downloadResetTimerRef.current = null;
+    }, 2000);
+    downloadRefreshTimerRef.current = window.setTimeout(() => {
+      void loadData(batchPage, taskPage);
+      downloadRefreshTimerRef.current = null;
+    }, 1200);
   }
 
   async function loadBatchTasks(batchId: number, nextTaskPage = taskPage) {
@@ -130,6 +151,21 @@ export default function BatchesPage() {
     void loadBatchTasks(selectedBatchId, taskPage);
   }, [selectedBatchId, taskPage]);
 
+  useEffect(() => {
+    return () => {
+      if (downloadResetTimerRef.current) {
+        window.clearTimeout(downloadResetTimerRef.current);
+      }
+      if (downloadRefreshTimerRef.current) {
+        window.clearTimeout(downloadRefreshTimerRef.current);
+      }
+      if (downloadFrameRef.current) {
+        document.body.removeChild(downloadFrameRef.current);
+        downloadFrameRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <div className="pageWrap">
       <header className="pageHeader rowHeader">
@@ -178,7 +214,7 @@ export default function BatchesPage() {
                   }}
                   disabled={loading || b.status === "waiting" || b.status === "processing"}
                 >
-                  下载当前批次
+                  {b.download_count > 0 ? "重新下载当前批次" : "下载当前批次"}
                 </button>
               </span>
             </div>

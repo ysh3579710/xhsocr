@@ -24,12 +24,17 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 300
     llm_retry_count: int = 1
     llm_retry_backoff_seconds: int = 1
+    app_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [item.strip() for item in self.app_cors_origins.split(",") if item.strip()]
 
 
 settings = Settings()

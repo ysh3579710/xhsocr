@@ -22,6 +22,7 @@ def _to_out(batch: Batch) -> BatchOut:
         success_count=batch.success_count,
         failed_count=batch.failed_count,
         status=batch.status.value,
+        download_count=batch.download_count,
         created_at=batch.created_at,
     )
 
@@ -147,9 +148,13 @@ def download_batch_tasks(batch_id: int, db: Session = Depends(get_db)) -> Respon
         .where(Task.batch_id == batch_id)
         .order_by(Task.created_at.desc())
     ).scalars().all()
-    return _build_tasks_zip_response(
+    response = _build_tasks_zip_response(
         tasks,
         empty_detail="当前批次没有可下载的任务内容。",
         file_name=_batch_zip_filename(synced),
         db=db,
     )
+    synced.download_count = (synced.download_count or 0) + 1
+    synced.last_downloaded_at = datetime.now(timezone.utc)
+    db.commit()
+    return response

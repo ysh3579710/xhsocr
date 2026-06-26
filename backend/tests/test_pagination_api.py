@@ -198,6 +198,17 @@ class PaginationApiTests(unittest.TestCase):
           self.assertIn("标题A\n正文A", contents)
           self.assertIn("标题B\n正文B", contents)
 
+        batch = self.db.get(Batch, batch_id)
+        assert batch is not None
+        self.assertEqual(batch.download_count, 1)
+        self.assertIsNotNone(batch.last_downloaded_at)
+
+        list_response = self.client.get("/batch?page=1&page_size=50")
+        self.assertEqual(list_response.status_code, 200)
+        items = list_response.json()["items"]
+        batch_item = next(item for item in items if item["id"] == batch_id)
+        self.assertEqual(batch_item["download_count"], 1)
+
     def test_retry_resets_download_markers_for_new_result_version(self) -> None:
         task_id = self._create_task(task_type=TaskType.ocr, folder_name="重试下载状态任务", full_output="标题\n正文")
 

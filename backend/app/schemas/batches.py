@@ -12,6 +12,7 @@ class BatchOut(BaseModel):
     success_count: int
     failed_count: int
     status: str
+    download_count: int = 0
     created_at: datetime
 
 
