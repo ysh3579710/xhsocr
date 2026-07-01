@@ -97,6 +97,36 @@ export default function BatchesPage() {
     }, 1200);
   }
 
+  async function retryAllBatch(batchId: number) {
+    const ok = window.confirm("确认重试当前批次下的全部任务吗？已成功和已失败任务都会重新执行。");
+    if (!ok) return;
+    setError("");
+    setLoading(true);
+    try {
+      await apiFetch<{ batch_id: number; retried_count: number }>(`/batch/${batchId}/retry-all`, { method: "POST" });
+      await loadData(batchPage, taskPage);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function retryFailedBatch(batchId: number) {
+    const ok = window.confirm("确认重写当前批次中的失败任务吗？已成功任务不会重新执行。");
+    if (!ok) return;
+    setError("");
+    setLoading(true);
+    try {
+      await apiFetch<{ batch_id: number; retried_count: number }>(`/batch/${batchId}/retry-failed`, { method: "POST" });
+      await loadData(batchPage, taskPage);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadBatchTasks(batchId: number, nextTaskPage = taskPage) {
     const taskData = await apiFetch<PaginatedResponse<Task>>(buildBatchTaskPath(batchId, nextTaskPage));
     setTasks(taskData.items);
@@ -216,6 +246,26 @@ export default function BatchesPage() {
                 >
                   {b.download_count > 0 ? "重新下载当前批次" : "下载当前批次"}
                 </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void retryAllBatch(b.id);
+                  }}
+                  disabled={loading || b.status === "waiting" || b.status === "processing"}
+                >
+                  全部重试
+                </button>
+                {b.status !== "waiting" && b.status !== "processing" && b.failed_count > 0 ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void retryFailedBatch(b.id);
+                    }}
+                    disabled={loading}
+                  >
+                    重写
+                  </button>
+                ) : null}
               </span>
             </div>
           ))}

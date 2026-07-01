@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.tasks import _build_tasks_zip_response, _content_disposition_header, _task_to_item
+from app.api.tasks import _build_tasks_zip_response, _content_disposition_header, _retry_task_in_place, _task_to_item
 from app.db.deps import get_db
 from app.models.entities import Batch, Task, TaskStatus
-from app.schemas.batches import BatchListPageOut, BatchOut, BatchTaskListPageOut
+from app.schemas.batches import BatchListPageOut, BatchOut, BatchRetryAllOut, BatchTaskListPageOut
 
 router = APIRouter(prefix="/batch", tags=["batch"])
 
@@ -158,3 +158,61 @@ def download_batch_tasks(batch_id: int, db: Session = Depends(get_db)) -> Respon
     synced.last_downloaded_at = datetime.now(timezone.utc)
     db.commit()
     return response
+
+
+@router.post("/{batch_id}/retry-all", response_model=BatchRetryAllOut)
+def retry_all_batch_tasks(batch_id: int, db: Session = Depends(get_db)) -> BatchRetryAllOut:
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found.")
+    synced = _sync_or_delete_batch(db, batch)
+    if not synced:
+        raise HTTPException(status_code=404, detail="Batch not found.")
+
+    tasks = db.execute(
+        select(Task)
+        .options(selectinload(Task.result))
+        .where(Task.batch_id == batch_id)
+        .order_by(Task.created_at.desc())
+    ).scalars().all()
+    if any(task.status in {TaskStatus.waiting, TaskStatus.processing} for task in tasks):
+        raise HTTPException(status_code=400, detail="当前批次仍有进行中的任务，暂不支持全部重试。")
+
+    retried_count = 0
+    for task in tasks:
+        _retry_task_in_place(task, db)
+        retried_count += 1
+
+    synced.status = TaskStatus.processing
+    db.commit()
+    return BatchRetryAllOut(batch_id=batch_id, retried_count=retried_count)
+
+
+@router.post("/{batch_id}/retry-failed", response_model=BatchRetryAllOut)
+def retry_failed_batch_tasks(batch_id: int, db: Session = Depends(get_db)) -> BatchRetryAllOut:
+    batch = db.get(Batch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found.")
+    synced = _sync_or_delete_batch(db, batch)
+    if not synced:
+        raise HTTPException(status_code=404, detail="Batch not found.")
+
+    tasks = db.execute(
+        select(Task)
+        .options(selectinload(Task.result))
+        .where(Task.batch_id == batch_id)
+        .order_by(Task.created_at.desc())
+    ).scalars().all()
+    if any(task.status in {TaskStatus.waiting, TaskStatus.processing} for task in tasks):
+        raise HTTPException(status_code=400, detail="当前批次仍有进行中的任务，暂不支持重写。")
+
+    retried_count = 0
+    for task in tasks:
+        if task.status != TaskStatus.failed:
+            continue
+        _retry_task_in_place(task, db)
+        retried_count += 1
+
+    synced.status = TaskStatus.processing
+    db.commit()
+    return BatchRetryAllOut(batch_id=batch_id, retried_count=retried_count)

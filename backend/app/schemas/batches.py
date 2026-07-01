@@ -30,3 +30,8 @@ class BatchTaskListPageOut(BaseModel):
     page_size: int
     total: int
     total_pages: int
+
+
+class BatchRetryAllOut(BaseModel):
+    batch_id: int
+    retried_count: int

@@ -199,6 +199,24 @@ def _task_to_item(task: Task, db: Session) -> TaskItemOut:
     )
 
 
+def _retry_task_in_place(task: Task, db: Session, *, force: bool = False) -> None:
+    if task.status == TaskStatus.processing and not force:
+        raise HTTPException(
+            status_code=409,
+            detail="Task is currently processing. Retry with `force=true` to reset and requeue.",
+        )
+
+    task.status = TaskStatus.waiting
+    task.error_message = None
+    task.retry_count += 1
+    if task.result:
+        task.result.download_count = 0
+        task.result.last_downloaded_at = None
+
+    db.flush()
+    enqueue_task(task.id)
+
+
 def _paginate_slice(items: list[T], page: int, page_size: int) -> tuple[list[T], int, int]:
     total = len(items)
     total_pages = max(1, ceil(total / page_size)) if page_size > 0 else 1
@@ -1086,23 +1104,9 @@ def retry_task(task_id: int, force: bool = Query(default=False), db: Session = D
     task = db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
-    if task.status == TaskStatus.processing:
-        if not force:
-            raise HTTPException(
-                status_code=409,
-                detail="Task is currently processing. Retry with `force=true` to reset and requeue.",
-            )
-
-    task.status = TaskStatus.waiting
-    task.error_message = None
-    task.retry_count += 1
-    if task.result:
-        task.result.download_count = 0
-        task.result.last_downloaded_at = None
+    _retry_task_in_place(task, db, force=force)
     db.commit()
     db.refresh(task)
-
-    enqueue_task(task.id)
     return _task_to_item(task, db)
 
 

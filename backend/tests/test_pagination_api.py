@@ -38,13 +38,23 @@ class PaginationApiTests(unittest.TestCase):
         self.db.commit()
         self.db.close()
 
-    def _create_task(self, *, task_type: TaskType, folder_name: str, full_output: str | None = None, extracted_title: str | None = None, batch_id: int | None = None) -> int:
+    def _create_task(
+        self,
+        *,
+        task_type: TaskType,
+        folder_name: str,
+        full_output: str | None = None,
+        extracted_title: str | None = None,
+        batch_id: int | None = None,
+        status: TaskStatus = TaskStatus.success,
+        download_count: int = 0,
+    ) -> int:
         task = Task(
             task_type=task_type,
             title=folder_name if task_type == TaskType.create else None,
             folder_name=folder_name,
             batch_id=batch_id,
-            status=TaskStatus.success,
+            status=status,
         )
         self.db.add(task)
         self.db.flush()
@@ -53,6 +63,7 @@ class PaginationApiTests(unittest.TestCase):
                 task_id=task.id,
                 full_output=full_output,
                 extracted_title=extracted_title,
+                download_count=download_count,
             )
         )
         self.db.commit()
@@ -208,6 +219,129 @@ class PaginationApiTests(unittest.TestCase):
         items = list_response.json()["items"]
         batch_item = next(item for item in items if item["id"] == batch_id)
         self.assertEqual(batch_item["download_count"], 1)
+
+    def test_retry_all_rejects_when_batch_has_waiting_or_processing_tasks(self) -> None:
+        batch_id = self._create_batch("批次全部重试拦截", BatchType.ocr)
+        self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="等待任务",
+            full_output="标题A\n正文A",
+            batch_id=batch_id,
+            status=TaskStatus.waiting,
+        )
+        self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="成功任务",
+            full_output="标题B\n正文B",
+            batch_id=batch_id,
+            status=TaskStatus.success,
+        )
+
+        response = self.client.post(f"/batch/{batch_id}/retry-all")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("进行中的任务", response.text)
+
+    def test_retry_all_requeues_all_finished_tasks_in_batch(self) -> None:
+        batch_id = self._create_batch("批次全部重试", BatchType.ocr)
+        success_task_id = self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="成功任务",
+            full_output="标题A\n正文A",
+            batch_id=batch_id,
+            status=TaskStatus.success,
+            download_count=2,
+        )
+        failed_task_id = self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="失败任务",
+            full_output="标题B\n正文B",
+            batch_id=batch_id,
+            status=TaskStatus.failed,
+            download_count=1,
+        )
+
+        response = self.client.post(f"/batch/{batch_id}/retry-all")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["retried_count"], 2)
+
+        success_task = self.db.get(Task, success_task_id)
+        failed_task = self.db.get(Task, failed_task_id)
+        batch = self.db.get(Batch, batch_id)
+        assert success_task is not None
+        assert failed_task is not None
+        assert batch is not None
+
+        self.assertEqual(success_task.status, TaskStatus.waiting)
+        self.assertEqual(failed_task.status, TaskStatus.waiting)
+        self.assertEqual(success_task.retry_count, 1)
+        self.assertEqual(failed_task.retry_count, 1)
+        self.assertEqual(success_task.result.download_count, 0)
+        self.assertEqual(failed_task.result.download_count, 0)
+        self.assertIsNone(success_task.result.last_downloaded_at)
+        self.assertIsNone(failed_task.result.last_downloaded_at)
+        self.assertEqual(batch.status, TaskStatus.processing)
+
+    def test_retry_failed_rejects_when_batch_has_waiting_or_processing_tasks(self) -> None:
+        batch_id = self._create_batch("批次重写拦截", BatchType.ocr)
+        self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="处理中任务",
+            full_output="标题A\n正文A",
+            batch_id=batch_id,
+            status=TaskStatus.processing,
+        )
+        self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="失败任务",
+            full_output="标题B\n正文B",
+            batch_id=batch_id,
+            status=TaskStatus.failed,
+        )
+
+        response = self.client.post(f"/batch/{batch_id}/retry-failed")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("暂不支持重写", response.text)
+
+    def test_retry_failed_only_requeues_failed_tasks(self) -> None:
+        batch_id = self._create_batch("批次重写", BatchType.ocr)
+        success_task_id = self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="成功任务",
+            full_output="标题A\n正文A",
+            batch_id=batch_id,
+            status=TaskStatus.success,
+            download_count=2,
+        )
+        failed_task_id = self._create_task(
+            task_type=TaskType.ocr,
+            folder_name="失败任务",
+            full_output="标题B\n正文B",
+            batch_id=batch_id,
+            status=TaskStatus.failed,
+            download_count=1,
+        )
+
+        response = self.client.post(f"/batch/{batch_id}/retry-failed")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["retried_count"], 1)
+
+        success_task = self.db.get(Task, success_task_id)
+        failed_task = self.db.get(Task, failed_task_id)
+        batch = self.db.get(Batch, batch_id)
+        assert success_task is not None
+        assert failed_task is not None
+        assert batch is not None
+
+        self.assertEqual(success_task.status, TaskStatus.success)
+        self.assertEqual(failed_task.status, TaskStatus.waiting)
+        self.assertEqual(success_task.retry_count, 0)
+        self.assertEqual(failed_task.retry_count, 1)
+        self.assertEqual(success_task.result.download_count, 2)
+        self.assertEqual(failed_task.result.download_count, 0)
+        self.assertIsNone(failed_task.result.last_downloaded_at)
+        self.assertEqual(batch.status, TaskStatus.processing)
 
     def test_retry_resets_download_markers_for_new_result_version(self) -> None:
         task_id = self._create_task(task_type=TaskType.ocr, folder_name="重试下载状态任务", full_output="标题\n正文")

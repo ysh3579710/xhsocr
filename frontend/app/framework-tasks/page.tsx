@@ -18,6 +18,7 @@ type PastedImage = {
 };
 
 type GroupDefaults = {
+  attribute?: string;
   bookId?: number;
   track?: string;
   promptId?: number;
@@ -25,6 +26,7 @@ type GroupDefaults = {
 
 type FolderGroup = {
   name: string;
+  attribute: string;
   bookId?: number;
   track: string;
   promptId?: number;
@@ -33,6 +35,7 @@ type FolderGroup = {
 type PastedGroup = {
   id: string;
   name: string;
+  attribute: string;
   bookId?: number;
   track: string;
   promptId?: number;
@@ -42,6 +45,7 @@ type PastedGroup = {
 type CustomGroup = {
   id: string;
   name: string;
+  attribute: string;
   title: string;
   pointsText: string;
   bookId?: number;
@@ -75,6 +79,7 @@ function sanitizeFolderName(input: string) {
 function createEmptyFolderGroup(name: string, defaults?: GroupDefaults): FolderGroup {
   return {
     name,
+    attribute: defaults?.attribute || "",
     bookId: defaults?.bookId,
     track: defaults?.track || "",
     promptId: defaults?.promptId,
@@ -85,6 +90,7 @@ function createEmptyPasteGroup(index: number, defaults?: GroupDefaults): PastedG
   return {
     id: createId(),
     name: `任务-${index}`,
+    attribute: defaults?.attribute || "",
     bookId: defaults?.bookId,
     track: defaults?.track || "",
     promptId: defaults?.promptId,
@@ -92,19 +98,24 @@ function createEmptyPasteGroup(index: number, defaults?: GroupDefaults): PastedG
   };
 }
 
-function createEmptyCustomGroup(index: number, bookId?: number, promptId?: number): CustomGroup {
+function createEmptyCustomGroup(index: number, defaults?: GroupDefaults): CustomGroup {
   return {
     id: createId(),
     name: `任务-${index}`,
+    attribute: defaults?.attribute || "",
     title: "",
     pointsText: "",
-    bookId,
-    promptId,
+    bookId: defaults?.bookId,
+    promptId: defaults?.promptId,
   };
 }
 
 function displayAttribute(attribute: string) {
   return attribute === "__NULL__" ? "无属性" : attribute;
+}
+
+function normalizeAttribute(attribute?: string | null) {
+  return attribute ?? "__NULL__";
 }
 
 export default function FrameworkTasksPage() {
@@ -125,9 +136,7 @@ export default function FrameworkTasksPage() {
   const [createMode, setCreateMode] = useState<CreateMode>("paste");
   const [taskFiles, setTaskFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("批次");
-  const [promptId, setPromptId] = useState<number | "">("");
   const [attributes, setAttributes] = useState<string[]>([]);
-  const [selectedAttribute, setSelectedAttribute] = useState<string>("");
   const [folderGroups, setFolderGroups] = useState<FolderGroup[]>([]);
   const [activeFolderGroupName, setActiveFolderGroupName] = useState("");
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -183,9 +192,7 @@ export default function FrameworkTasksPage() {
     return countMap;
   }, [taskFiles]);
 
-  const availableTracks = useMemo(() => {
-    return Array.from(new Set(prompts.map((prompt) => prompt.track))).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  }, [prompts]);
+  const promptMap = useMemo(() => new Map(prompts.map((prompt) => [prompt.id, prompt])), [prompts]);
 
   const hasUnsavedCreateData = useMemo(() => {
     if (taskFiles.length > 0) return true;
@@ -246,20 +253,57 @@ export default function FrameworkTasksPage() {
     return m?.[1]?.trim() || fallback;
   }
 
-  function promptsForTrack(track: string) {
-    return track ? prompts.filter((prompt) => prompt.track === track) : [];
+  function booksForAttribute(attribute: string) {
+    if (!attribute) return [];
+    return books.filter((book) => normalizeAttribute(book.attribute) === attribute);
+  }
+
+  function tracksForAttribute(attribute: string) {
+    if (!attribute) return [];
+    return Array.from(
+      new Set(
+        prompts
+          .filter((prompt) => normalizeAttribute(prompt.attribute) === attribute)
+          .map((prompt) => prompt.track)
+      )
+    ).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }
+
+  function promptsForTrack(attribute: string, track: string) {
+    if (!attribute || !track) return [];
+    return prompts.filter(
+      (prompt) => normalizeAttribute(prompt.attribute) === attribute && prompt.track === track
+    );
+  }
+
+  function promptsForAttribute(attribute: string) {
+    if (!attribute) return [];
+    return prompts.filter((prompt) => normalizeAttribute(prompt.attribute) === attribute);
   }
 
   function isFolderGroupReady(group: FolderGroup) {
-    return Boolean((folderFileCount[group.name] || 0) > 0 && group.bookId && group.track && group.promptId);
+    return Boolean(
+      (folderFileCount[group.name] || 0) > 0 &&
+        (!attributes.length || group.attribute) &&
+        group.bookId &&
+        group.track &&
+        group.promptId
+    );
   }
 
   function isPasteGroupReady(group: PastedGroup) {
-    return Boolean(group.images.length > 0 && group.bookId && group.track && group.promptId);
+    return Boolean(
+      group.images.length > 0 &&
+        (!attributes.length || group.attribute) &&
+        group.bookId &&
+        group.track &&
+        group.promptId
+    );
   }
 
   function isCustomGroupReady(group: CustomGroup) {
     return Boolean(
+      (!attributes.length || group.attribute) &&
       group.bookId &&
       group.promptId &&
       group.title.trim() &&
@@ -325,48 +369,14 @@ export default function FrameworkTasksPage() {
   }
 
   async function loadPromptList() {
-    if (attributes.length > 0 && !selectedAttribute) {
-      setPrompts([]);
-      setPromptId("");
-      setFolderGroups((prev) => prev.map((g) => ({ ...g, track: "", promptId: undefined })));
-      setPasteGroups((prev) => prev.map((g) => ({ ...g, track: "", promptId: undefined })));
-      setCustomGroups((prev) => prev.map((g) => ({ ...g, promptId: undefined })));
-      return;
-    }
-
     const params = new URLSearchParams({ enabled: "true" });
-    if (selectedAttribute) {
-      params.set("attribute", selectedAttribute);
-    }
-
     const promptData = await apiFetch<PromptItem[]>(`/prompts?${params.toString()}`);
     setPrompts(promptData);
-    if (promptData.length > 0 && (promptId === "" || !promptData.some((p) => p.id === promptId))) {
-      setPromptId(promptData[0].id);
-    } else if (promptData.length === 0) {
-      setPromptId("");
-    }
   }
 
   async function loadBookList() {
-    if (attributes.length > 0 && !selectedAttribute) {
-      setBooks([]);
-      setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
-      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
-      setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
-      return;
-    }
-
-    const params = new URLSearchParams();
-    if (selectedAttribute) {
-      params.set("attribute", selectedAttribute);
-    }
-
-    const bookData = await apiFetch<Book[]>(`/books${params.toString() ? `?${params.toString()}` : ""}`);
+    const bookData = await apiFetch<Book[]>("/books");
     setBooks(bookData);
-    setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
-    setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
-    setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined })));
   }
 
   async function loadTaskPage(options?: {
@@ -428,48 +438,57 @@ export default function FrameworkTasksPage() {
   }, [page, keyword]);
 
   useEffect(() => {
-    if (attributes.length > 0 && !selectedAttribute) {
-      setPrompts([]);
-      setPromptId("");
-      setFolderGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, track: "", promptId: undefined })));
-      setPasteGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, track: "", promptId: undefined })));
-      setCustomGroups((prev) => prev.map((g) => ({ ...g, bookId: undefined, promptId: undefined })));
-      return;
-    }
-
-    setCustomGroups((prev) => prev.map((g) => ({ ...g, promptId: undefined })));
+    if (attributes.length === 0) return;
     void loadPromptList();
     void loadBookList();
-  }, [selectedAttribute, attributes.length]);
+  }, [attributes.length]);
 
   useEffect(() => {
-    const promptMap = new Map(prompts.map((prompt) => [prompt.id, prompt]));
-    const validTracks = new Set(prompts.map((prompt) => prompt.track));
-
     setFolderGroups((prev) =>
       prev.map((group) => {
+        const validBookIds = new Set(booksForAttribute(group.attribute).map((book) => book.id));
+        const validTracks = new Set(tracksForAttribute(group.attribute));
+        const nextBookId = group.bookId && validBookIds.has(group.bookId) ? group.bookId : undefined;
         const nextTrack = group.track && validTracks.has(group.track) ? group.track : "";
         const prompt = group.promptId ? promptMap.get(group.promptId) : undefined;
-        const nextPromptId = prompt && (!nextTrack || prompt.track === nextTrack) ? group.promptId : undefined;
-        return nextTrack === group.track && nextPromptId === group.promptId
+        const nextPromptId =
+          prompt && normalizeAttribute(prompt.attribute) === group.attribute && prompt.track === nextTrack
+            ? group.promptId
+            : undefined;
+        return nextBookId === group.bookId && nextTrack === group.track && nextPromptId === group.promptId
           ? group
-          : { ...group, track: nextTrack, promptId: nextPromptId };
+          : { ...group, bookId: nextBookId, track: nextTrack, promptId: nextPromptId };
       })
     );
     setPasteGroups((prev) =>
       prev.map((group) => {
+        const validBookIds = new Set(booksForAttribute(group.attribute).map((book) => book.id));
+        const validTracks = new Set(tracksForAttribute(group.attribute));
+        const nextBookId = group.bookId && validBookIds.has(group.bookId) ? group.bookId : undefined;
         const nextTrack = group.track && validTracks.has(group.track) ? group.track : "";
         const prompt = group.promptId ? promptMap.get(group.promptId) : undefined;
-        const nextPromptId = prompt && (!nextTrack || prompt.track === nextTrack) ? group.promptId : undefined;
-        return nextTrack === group.track && nextPromptId === group.promptId
+        const nextPromptId =
+          prompt && normalizeAttribute(prompt.attribute) === group.attribute && prompt.track === nextTrack
+            ? group.promptId
+            : undefined;
+        return nextBookId === group.bookId && nextTrack === group.track && nextPromptId === group.promptId
           ? group
-          : { ...group, track: nextTrack, promptId: nextPromptId };
+          : { ...group, bookId: nextBookId, track: nextTrack, promptId: nextPromptId };
       })
     );
     setCustomGroups((prev) =>
-      prev.map((group) => (group.promptId && !promptMap.has(group.promptId) ? { ...group, promptId: undefined } : group))
+      prev.map((group) => {
+        const validBookIds = new Set(booksForAttribute(group.attribute).map((book) => book.id));
+        const nextBookId = group.bookId && validBookIds.has(group.bookId) ? group.bookId : undefined;
+        const prompt = group.promptId ? promptMap.get(group.promptId) : undefined;
+        const nextPromptId =
+          prompt && normalizeAttribute(prompt.attribute) === group.attribute ? group.promptId : undefined;
+        return nextBookId === group.bookId && nextPromptId === group.promptId
+          ? group
+          : { ...group, bookId: nextBookId, promptId: nextPromptId };
+      })
     );
-  }, [prompts]);
+  }, [books, promptMap, prompts]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
@@ -498,19 +517,11 @@ export default function FrameworkTasksPage() {
     setFolderGroups([]);
     setActiveFolderGroupName("");
     setBatchName("批次");
-    setSelectedAttribute("");
-    if (prompts.length > 0) {
-      const recentPrompt = tasks.find((t) => t.task_type === "framework" && t.prompt_id && prompts.some((p) => p.id === t.prompt_id))
-        ?.prompt_id;
-      setPromptId(recentPrompt || prompts[0].id);
-    } else {
-      setPromptId("");
-    }
     setCreateMode("paste");
     const first = createEmptyPasteGroup(1);
     setPasteGroups([first]);
     setActiveGroupId(first.id);
-    const firstCustom = createEmptyCustomGroup(1, undefined, prompts[0]?.id);
+    const firstCustom = createEmptyCustomGroup(1);
     setCustomGroups([firstCustom]);
     setActiveCustomGroupId(firstCustom.id);
     pasteSeqRef.current = 0;
@@ -628,14 +639,18 @@ export default function FrameworkTasksPage() {
     setActiveGroupId(next.id);
   }
 
-  function onCreateNextCustomGroup(defaultBookId?: number, defaultPromptId?: number) {
-    const next = createEmptyCustomGroup(customGroups.length + 1, defaultBookId, defaultPromptId);
+  function onCreateNextCustomGroup(defaults?: GroupDefaults) {
+    const next = createEmptyCustomGroup(customGroups.length + 1, defaults);
     setCustomGroups((prev) => [...prev, next]);
     setActiveCustomGroupId(next.id);
   }
 
   function onCompleteCurrentFolderGroup() {
     if (!activeFolderGroup) return;
+    if (attributes.length > 0 && !activeFolderGroup.attribute) {
+      showModalToast("需要选择属性才能进入下一组。");
+      return;
+    }
     if (!activeFolderGroup.bookId) {
       showModalToast("需要绑定书稿才能进入下一组。");
       return;
@@ -659,6 +674,7 @@ export default function FrameworkTasksPage() {
         index === currentIndex + 1
           ? {
               ...group,
+              attribute: group.attribute || activeFolderGroup.attribute,
               bookId: group.bookId ?? activeFolderGroup.bookId,
               track: group.track || activeFolderGroup.track,
               promptId: group.promptId ?? activeFolderGroup.promptId,
@@ -671,6 +687,10 @@ export default function FrameworkTasksPage() {
 
   function onCompleteCurrentGroup() {
     if (!activePasteGroup) return;
+    if (attributes.length > 0 && !activePasteGroup.attribute) {
+      showModalToast("需要选择属性才能创建下一组。");
+      return;
+    }
     if (!activePasteGroup.bookId) {
       showModalToast("需要绑定书稿才能创建下一组。");
       return;
@@ -688,6 +708,7 @@ export default function FrameworkTasksPage() {
       return;
     }
     onCreateNextPasteGroup({
+      attribute: activePasteGroup.attribute,
       bookId: activePasteGroup.bookId,
       track: activePasteGroup.track,
       promptId: activePasteGroup.promptId,
@@ -696,6 +717,10 @@ export default function FrameworkTasksPage() {
 
   function onCompleteCurrentCustomGroup() {
     if (!activeCustomGroup) return;
+    if (attributes.length > 0 && !activeCustomGroup.attribute) {
+      showModalToast("需要选择属性才能创建下一组。");
+      return;
+    }
     if (!activeCustomGroup.bookId) {
       showModalToast("需要绑定书稿才能创建下一组。");
       return;
@@ -712,7 +737,11 @@ export default function FrameworkTasksPage() {
       showModalToast("请填写分点观点后再创建下一组。");
       return;
     }
-    onCreateNextCustomGroup(activeCustomGroup.bookId, activeCustomGroup.promptId);
+    onCreateNextCustomGroup({
+      attribute: activeCustomGroup.attribute,
+      bookId: activeCustomGroup.bookId,
+      promptId: activeCustomGroup.promptId,
+    });
   }
 
   function updateFolderGroup(groupName: string, patch: Partial<FolderGroup>) {
@@ -720,9 +749,19 @@ export default function FrameworkTasksPage() {
       prev.map((group) => {
         if (group.name !== groupName) return group;
         const next = { ...group, ...patch };
+        if (patch.attribute !== undefined) {
+          next.bookId = undefined;
+          next.track = "";
+          next.promptId = undefined;
+          return next;
+        }
         if (patch.track !== undefined) {
-          const selectedPrompt = next.promptId ? prompts.find((prompt) => prompt.id === next.promptId) : undefined;
-          if (!selectedPrompt || selectedPrompt.track !== next.track) {
+          const selectedPrompt = next.promptId ? promptMap.get(next.promptId) : undefined;
+          if (
+            !selectedPrompt ||
+            normalizeAttribute(selectedPrompt.attribute) !== next.attribute ||
+            selectedPrompt.track !== next.track
+          ) {
             next.promptId = undefined;
           }
         }
@@ -735,19 +774,32 @@ export default function FrameworkTasksPage() {
     setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, name } : g)));
   }
 
+  function updateGroupAttribute(groupId: string, attribute: string) {
+    setPasteGroups((prev) =>
+      prev.map((group) =>
+        group.id === groupId ? { ...group, attribute, bookId: undefined, track: "", promptId: undefined } : group
+      )
+    );
+  }
+
   function updateGroupBook(groupId: string, bookId: number) {
-    setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, bookId } : g)));
+    setPasteGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, bookId: bookId || undefined } : g)));
   }
 
   function updateGroupTrack(groupId: string, track: string) {
     setPasteGroups((prev) =>
       prev.map((group) => {
         if (group.id !== groupId) return group;
-        const selectedPrompt = group.promptId ? prompts.find((prompt) => prompt.id === group.promptId) : undefined;
+        const selectedPrompt = group.promptId ? promptMap.get(group.promptId) : undefined;
         return {
           ...group,
           track,
-          promptId: selectedPrompt && selectedPrompt.track === track ? group.promptId : undefined,
+          promptId:
+            selectedPrompt &&
+            normalizeAttribute(selectedPrompt.attribute) === group.attribute &&
+            selectedPrompt.track === track
+              ? group.promptId
+              : undefined,
         };
       })
     );
@@ -760,7 +812,17 @@ export default function FrameworkTasksPage() {
   }
 
   function updateCustomGroup(groupId: string, patch: Partial<CustomGroup>) {
-    setCustomGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
+    setCustomGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== groupId) return group;
+        const next = { ...group, ...patch };
+        if (patch.attribute !== undefined) {
+          next.bookId = undefined;
+          next.promptId = undefined;
+        }
+        return next;
+      })
+    );
   }
 
   function copyCurrentPasteGroup() {
@@ -779,6 +841,7 @@ export default function FrameworkTasksPage() {
         previewUrl: URL.createObjectURL(image.file),
       }));
     const next = createEmptyPasteGroup(pasteGroups.length + 1, {
+      attribute: activePasteGroup.attribute,
       bookId: activePasteGroup.bookId,
       track: activePasteGroup.track,
       promptId: activePasteGroup.promptId,
@@ -786,6 +849,24 @@ export default function FrameworkTasksPage() {
     next.images = copiedImages;
     setPasteGroups((prev) => [...prev, next]);
     setActiveGroupId(next.id);
+    showModalToast("已复制到新组。");
+  }
+
+  function copyCurrentCustomGroup() {
+    if (!activeCustomGroup) return;
+    if (!activeCustomGroup.title.trim() && !activeCustomGroup.pointsText.trim()) {
+      showModalToast("当前组没有可复制的内容。");
+      return;
+    }
+    const next = createEmptyCustomGroup(customGroups.length + 1, {
+      attribute: activeCustomGroup.attribute,
+      bookId: activeCustomGroup.bookId,
+      promptId: activeCustomGroup.promptId,
+    });
+    next.title = activeCustomGroup.title;
+    next.pointsText = activeCustomGroup.pointsText;
+    setCustomGroups((prev) => [...prev, next]);
+    setActiveCustomGroupId(next.id);
     showModalToast("已复制到新组。");
   }
 
@@ -810,7 +891,7 @@ export default function FrameworkTasksPage() {
     setCustomGroups((prev) => {
       const next = prev.filter((g) => g.id !== groupId);
       if (next.length === 0) {
-        const first = createEmptyCustomGroup(1, undefined, prompts[0]?.id);
+        const first = createEmptyCustomGroup(1);
         setActiveCustomGroupId(first.id);
         return [first];
       }
@@ -877,6 +958,10 @@ export default function FrameworkTasksPage() {
     }
     for (const group of folderGroups) {
       if ((folderFileCount[group.name] || 0) === 0) continue;
+      if (attributes.length > 0 && !group.attribute) {
+        setError(`目录 ${group.name} 未选择属性`);
+        return false;
+      }
       if (!group.bookId) {
         setError(`目录 ${group.name} 未绑定书稿`);
         return false;
@@ -921,6 +1006,10 @@ export default function FrameworkTasksPage() {
       return false;
     }
     for (const group of groups) {
+      if (attributes.length > 0 && !group.attribute) {
+        showModalToast(`请先为 ${group.name} 选择属性后再提交`);
+        return false;
+      }
       if (!group.bookId) {
         showModalToast(`请先为 ${group.name} 绑定书稿后再提交`);
         return false;
@@ -972,6 +1061,10 @@ export default function FrameworkTasksPage() {
       return false;
     }
     const validateGroup = (group: CustomGroup) => {
+      if (attributes.length > 0 && !group.attribute) {
+        showModalToast("请先选择属性后再提交");
+        return false;
+      }
       if (!group.bookId) {
         showModalToast("请先绑定书稿后再提交");
         return false;
@@ -1004,7 +1097,6 @@ export default function FrameworkTasksPage() {
       body: JSON.stringify({
         batch_name: batchName || "批次",
         auto_enqueue: true,
-        prompt_id: groups[0]?.promptId || promptId || undefined,
         tasks: groups.map((group) => ({
           task_name: group.name,
           title: group.title,
@@ -1163,16 +1255,6 @@ export default function FrameworkTasksPage() {
 
             <form onSubmit={onCreateTask} className="stack">
               <input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="批次名（多组提交时生效）" />
-              {attributes.length > 0 ? (
-                <select value={selectedAttribute} onChange={(e) => setSelectedAttribute(e.target.value)}>
-                  <option value="">选择属性（必选）</option>
-                  {attributes.map((attribute) => (
-                    <option key={attribute} value={attribute}>
-                      {displayAttribute(attribute)}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
 
               {createMode === "folder" ? (
                 <>
@@ -1211,15 +1293,33 @@ export default function FrameworkTasksPage() {
                             <span>{activeFolderGroup.name}（{folderFileCount[activeFolderGroup.name] || 0} 张）</span>
                             <button type="button" onClick={() => removeFolder(activeFolderGroup.name)} disabled={loading}>移除目录</button>
                           </div>
+                          {attributes.length > 0 ? (
+                            <div className="bindRow">
+                              <span>属性</span>
+                              <select
+                                value={activeFolderGroup.attribute}
+                                onChange={(e) => updateFolderGroup(activeFolderGroup.name, { attribute: e.target.value })}
+                              >
+                                <option value="">选择属性（必选）</option>
+                                {attributes.map((attribute) => (
+                                  <option key={attribute} value={attribute}>
+                                    {displayAttribute(attribute)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : null}
                           <div className="bindRow">
                             <span>绑定书稿</span>
                             <select
                               value={activeFolderGroup.bookId || ""}
                               onChange={(e) => updateFolderGroup(activeFolderGroup.name, { bookId: Number(e.target.value) || undefined })}
-                              disabled={attributes.length > 0 && !selectedAttribute}
+                              disabled={attributes.length > 0 && !activeFolderGroup.attribute}
                             >
-                              <option value="">选择书稿</option>
-                              {books.map((book) => (
+                              <option value="">
+                                {attributes.length > 0 && !activeFolderGroup.attribute ? "先选择属性后再选择书稿" : "选择书稿"}
+                              </option>
+                              {booksForAttribute(activeFolderGroup.attribute).map((book) => (
                                 <option key={book.id} value={book.id}>
                                   {book.id} - {book.title}
                                 </option>
@@ -1231,12 +1331,12 @@ export default function FrameworkTasksPage() {
                             <select
                               value={activeFolderGroup.track}
                               onChange={(e) => updateFolderGroup(activeFolderGroup.name, { track: e.target.value })}
-                              disabled={attributes.length > 0 && !selectedAttribute}
+                              disabled={attributes.length > 0 && !activeFolderGroup.attribute}
                             >
                               <option value="">
-                                {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择赛道" : "选择赛道"}
+                                {attributes.length > 0 && !activeFolderGroup.attribute ? "先选择属性后再选择赛道" : "选择赛道"}
                               </option>
-                              {availableTracks.map((track) => (
+                              {tracksForAttribute(activeFolderGroup.attribute).map((track) => (
                                 <option key={track} value={track}>
                                   {track}
                                 </option>
@@ -1248,12 +1348,16 @@ export default function FrameworkTasksPage() {
                             <select
                               value={activeFolderGroup.promptId || ""}
                               onChange={(e) => updateFolderGroup(activeFolderGroup.name, { promptId: Number(e.target.value) || undefined })}
-                              disabled={attributes.length > 0 && !selectedAttribute}
+                              disabled={attributes.length > 0 && !activeFolderGroup.attribute}
                             >
                               <option value="">
-                                {activeFolderGroup.track ? "选择提示词" : "先选择赛道后再选择提示词"}
+                                {!activeFolderGroup.attribute
+                                  ? "先选择属性后再选择提示词"
+                                  : activeFolderGroup.track
+                                    ? "选择提示词"
+                                    : "先选择赛道后再选择提示词"}
                               </option>
-                              {promptsForTrack(activeFolderGroup.track).map((prompt) => (
+                              {promptsForTrack(activeFolderGroup.attribute, activeFolderGroup.track).map((prompt) => (
                                 <option key={prompt.id} value={prompt.id}>
                                   [{prompt.track}] {prompt.name}
                                 </option>
@@ -1295,15 +1399,33 @@ export default function FrameworkTasksPage() {
                           placeholder="可手动修改分组名"
                         />
                       </div>
+                      {attributes.length > 0 ? (
+                        <div className="bindRow">
+                          <span>属性</span>
+                          <select
+                            value={activePasteGroup.attribute}
+                            onChange={(e) => updateGroupAttribute(activePasteGroup.id, e.target.value)}
+                          >
+                            <option value="">选择属性（必选）</option>
+                            {attributes.map((attribute) => (
+                              <option key={attribute} value={attribute}>
+                                {displayAttribute(attribute)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
                       <div className="bindRow">
                         <span>绑定书稿</span>
                         <select
                           value={activePasteGroup.bookId || ""}
                           onChange={(e) => updateGroupBook(activePasteGroup.id, Number(e.target.value))}
-                          disabled={attributes.length > 0 && !selectedAttribute}
+                          disabled={attributes.length > 0 && !activePasteGroup.attribute}
                         >
-                          <option value="">选择书稿</option>
-                          {books.map((book) => (
+                          <option value="">
+                            {attributes.length > 0 && !activePasteGroup.attribute ? "先选择属性后再选择书稿" : "选择书稿"}
+                          </option>
+                          {booksForAttribute(activePasteGroup.attribute).map((book) => (
                             <option key={book.id} value={book.id}>
                               {book.id} - {book.title}
                             </option>
@@ -1315,12 +1437,12 @@ export default function FrameworkTasksPage() {
                         <select
                           value={activePasteGroup.track}
                           onChange={(e) => updateGroupTrack(activePasteGroup.id, e.target.value)}
-                          disabled={attributes.length > 0 && !selectedAttribute}
+                          disabled={attributes.length > 0 && !activePasteGroup.attribute}
                         >
                           <option value="">
-                            {attributes.length > 0 && !selectedAttribute ? "先选择属性后再选择赛道" : "选择赛道"}
+                            {attributes.length > 0 && !activePasteGroup.attribute ? "先选择属性后再选择赛道" : "选择赛道"}
                           </option>
-                          {availableTracks.map((track) => (
+                          {tracksForAttribute(activePasteGroup.attribute).map((track) => (
                             <option key={track} value={track}>
                               {track}
                             </option>
@@ -1332,12 +1454,16 @@ export default function FrameworkTasksPage() {
                         <select
                           value={activePasteGroup.promptId || ""}
                           onChange={(e) => updateGroupPrompt(activePasteGroup.id, Number(e.target.value))}
-                          disabled={attributes.length > 0 && !selectedAttribute}
+                          disabled={attributes.length > 0 && !activePasteGroup.attribute}
                         >
                           <option value="">
-                            {activePasteGroup.track ? "选择提示词" : "先选择赛道后再选择提示词"}
+                            {!activePasteGroup.attribute
+                              ? "先选择属性后再选择提示词"
+                              : activePasteGroup.track
+                                ? "选择提示词"
+                                : "先选择赛道后再选择提示词"}
                           </option>
-                          {promptsForTrack(activePasteGroup.track).map((prompt) => (
+                          {promptsForTrack(activePasteGroup.attribute, activePasteGroup.track).map((prompt) => (
                             <option key={prompt.id} value={prompt.id}>
                               [{prompt.track}] {prompt.name}
                             </option>
@@ -1402,15 +1528,33 @@ export default function FrameworkTasksPage() {
                           placeholder="可手动修改任务名"
                         />
                       </div>
+                      {attributes.length > 0 ? (
+                        <div className="bindRow">
+                          <span>属性</span>
+                          <select
+                            value={activeCustomGroup.attribute}
+                            onChange={(e) => updateCustomGroup(activeCustomGroup.id, { attribute: e.target.value })}
+                          >
+                            <option value="">选择属性（必选）</option>
+                            {attributes.map((attribute) => (
+                              <option key={attribute} value={attribute}>
+                                {displayAttribute(attribute)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
                       <div className="bindRow">
                         <span>绑定书稿</span>
                         <select
                           value={activeCustomGroup.bookId || ""}
-                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { bookId: Number(e.target.value) })}
-                          disabled={attributes.length > 0 && !selectedAttribute}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { bookId: Number(e.target.value) || undefined })}
+                          disabled={attributes.length > 0 && !activeCustomGroup.attribute}
                         >
-                          <option value="">选择书稿</option>
-                          {books.map((book) => (
+                          <option value="">
+                            {attributes.length > 0 && !activeCustomGroup.attribute ? "先选择属性后再选择书稿" : "选择书稿"}
+                          </option>
+                          {booksForAttribute(activeCustomGroup.attribute).map((book) => (
                             <option key={book.id} value={book.id}>
                               {book.id} - {book.title}
                             </option>
@@ -1421,15 +1565,15 @@ export default function FrameworkTasksPage() {
                         <span>提示词</span>
                         <select
                           value={activeCustomGroup.promptId || ""}
-                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { promptId: Number(e.target.value) })}
-                          disabled={attributes.length > 0 && !selectedAttribute}
+                          onChange={(e) => updateCustomGroup(activeCustomGroup.id, { promptId: Number(e.target.value) || undefined })}
+                          disabled={attributes.length > 0 && !activeCustomGroup.attribute}
                         >
                           <option value="">
-                            {attributes.length > 0 && !selectedAttribute
+                            {attributes.length > 0 && !activeCustomGroup.attribute
                               ? "先选择属性后再选择提示词"
                               : "选择提示词"}
                           </option>
-                          {prompts.map((p) => (
+                          {promptsForAttribute(activeCustomGroup.attribute).map((p) => (
                             <option key={p.id} value={p.id}>
                               [{p.track}] {p.name}
                             </option>
@@ -1452,6 +1596,13 @@ export default function FrameworkTasksPage() {
                       />
                       <div className="actions">
                         <button type="button" onClick={onCompleteCurrentCustomGroup} disabled={loading}>完成本组并新建下一组</button>
+                        <button
+                          type="button"
+                          onClick={copyCurrentCustomGroup}
+                          disabled={loading || (!activeCustomGroup.title.trim() && !activeCustomGroup.pointsText.trim())}
+                        >
+                          复制本组
+                        </button>
                         <button type="button" onClick={() => removeCustomGroup(activeCustomGroup.id)} disabled={loading}>删除本组</button>
                       </div>
                       <p className="empty">可提交任务数：{submitReadyCustomGroups.length}</p>
