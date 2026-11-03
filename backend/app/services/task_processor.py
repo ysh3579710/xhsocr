@@ -340,7 +340,12 @@ def process_task(task_id: int) -> None:
                 outline = f"大标题：{title}\n分点观点：\n{points_text}".strip()
                 _log_and_commit(db, task, "extract", "info", "Using structured outline snapshot.")
             else:
-                extract_llm = LLMClient(model=FRAMEWORK_OUTLINE_EXTRACT_MODEL)
+                extract_model = (
+                    task.llm_model
+                    if task.llm_model.startswith("doubao-seed-")
+                    else FRAMEWORK_OUTLINE_EXTRACT_MODEL
+                )
+                extract_llm = LLMClient(model=extract_model)
                 title, points_text, outline = _extract_outline_with_internal_prompt(extract_llm, original_note_text)
                 result.extracted_title = title
                 result.extracted_points_text = points_text
@@ -349,7 +354,7 @@ def process_task(task_id: int) -> None:
                     task,
                     "extract",
                     "info",
-                    f"Outline extraction finished with {FRAMEWORK_OUTLINE_EXTRACT_MODEL}.",
+                    f"Outline extraction finished with {extract_model}.",
                 )
             final_prompt = render_prompt_template(
                 task.prompt_snapshot,

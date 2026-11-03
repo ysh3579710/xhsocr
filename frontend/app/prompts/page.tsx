@@ -26,7 +26,9 @@ const MODEL_LABELS: Record<string, string> = {
   "openai/gpt-5-mini": "openai/gpt-5-mini",
   "openai/gpt-5.3-chat": "openai/gpt-5.3-chat",
   "claude-sonnet-4.6": "claude-sonnet-4.6",
-  "google/gemini-3-flash-preview": "Gemini 3 Flash Preview"
+  "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
+  "doubao-seed-2-1-lite-260915": "豆包 Seed 2.1 Lite（火山方舟官方 API）",
+  "doubao-seed-2-1-pro-260915": "豆包 Seed 2.1 Pro（火山方舟官方 API）"
 };
 
 export default function PromptsPage() {

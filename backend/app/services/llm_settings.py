@@ -12,6 +12,8 @@ SUPPORTED_LLM_MODELS = [
     "openai/gpt-5.3-chat",
     "claude-sonnet-4.6",
     "google/gemini-3-flash-preview",
+    "doubao-seed-2-1-lite-260915",
+    "doubao-seed-2-1-pro-260915",
 ]
 
 

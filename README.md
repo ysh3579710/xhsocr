@@ -28,7 +28,7 @@
 - DB: PostgreSQL
 - Queue: Redis + Worker
 - OCR: PaddleOCR
-- LLM: OpenRouter (OpenAI-compatible API)
+- LLM: OpenRouter for GPT/Claude/Gemini; Volcengine Ark official API for Doubao
 
 ## 本地依赖
 
@@ -59,6 +59,7 @@ cp .env.example .env
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_BASE_URL`
 - `OPENROUTER_MODEL`
+- `ARK_API_KEY` (only needed when a Doubao model is selected)
 
 ## 密钥安全规范
 
@@ -185,9 +186,12 @@ LLM 配置：
   - `OPENROUTER_BASE_URL`
   - `OPENROUTER_API_KEY`
   - `OPENROUTER_MODEL`
+  - `ARK_API_KEY`（选择豆包模型时必填；豆包会直接调用火山方舟官方 API）
   - `LLM_TIMEOUT_SECONDS`（默认 300）
   - `LLM_RETRY_COUNT`（默认 1，超时/连接错误自动重试）
   - `LLM_RETRY_BACKOFF_SECONDS`（默认 1）
+
+配置中心支持将 `doubao-seed-2-1-lite-260915` 或 `doubao-seed-2-1-pro-260915` 保存为默认模型。豆包请求直接发送至 `https://ark.cn-beijing.volces.com/api/v3/chat/completions`，不经过 OpenRouter。`ARK_API_KEY` 仅配置在后端环境中。
 
 ## Step 8 API（已可用）
 

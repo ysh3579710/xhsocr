@@ -42,6 +42,8 @@ class LLMClient:
     def chat(self, prompt: str) -> str:
         if self.provider == "mock":
             return self._mock(prompt)
+        if self.model.startswith("doubao-seed-"):
+            return self._ark(prompt)
         if self.provider == "openrouter":
             return self._openrouter(prompt)
         raise RuntimeError(f"Unsupported llm provider: {self.provider}")
@@ -51,13 +53,28 @@ class LLMClient:
             raise RuntimeError("OPENROUTER_API_KEY is missing.")
         base = settings.openrouter_base_url.rstrip("/")
         url = f"{base}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings.openrouter_api_key}",
-        }
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
+        }
+        return self._post_chat_completion(url, settings.openrouter_api_key, payload)
+
+    def _ark(self, prompt: str) -> str:
+        if not settings.ark_api_key:
+            raise RuntimeError("ARK_API_KEY is missing.")
+        # Official Volcengine Ark API. Doubao model IDs route here directly.
+        url = f"{settings.ark_base_url.rstrip('/')}/chat/completions"
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "thinking": {"type": "disabled"},
+        }
+        return self._post_chat_completion(url, settings.ark_api_key, payload)
+
+    def _post_chat_completion(self, url: str, api_key: str, payload: dict[str, Any]) -> str:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
         }
         timeout_seconds = self._request_timeout_seconds()
         max_attempts = max(1, settings.llm_retry_count + 1)

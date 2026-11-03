@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-5-mini"
+    ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    ark_api_key: str = ""
     llm_timeout_seconds: int = 300
     llm_retry_count: int = 1
     llm_retry_backoff_seconds: int = 1
