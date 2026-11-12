@@ -1,0 +1,446 @@
+20:52:03 Worker abd39d1d128a4079b58dd6bd53829607: started with PID 8856, version 2.6.0
+20:52:03 Worker abd39d1d128a4079b58dd6bd53829607: subscribing to channel rq:pubsub:abd39d1d128a4079b58dd6bd53829607
+20:52:03 *** Listening on xhsocr_tasks...
+20:52:03 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:14:25 xhsocr_tasks: app.services.task_processor.process_task(18173) (3ad13a62-1bff-47d6-949e-59d18335ecc5)
+21:15:21 Successfully completed app.services.task_processor.process_task(18173) job in 0:00:55.827070s on worker abd39d1d128a4079b58dd6bd53829607
+21:15:21 xhsocr_tasks: Job OK (3ad13a62-1bff-47d6-949e-59d18335ecc5)
+21:15:21 Result is kept for 500 seconds
+21:15:21 xhsocr_tasks: app.services.task_processor.process_task(18166) (1a26425f-b51e-4701-887d-98ff02ff3f1d)
+21:16:11 Successfully completed app.services.task_processor.process_task(18166) job in 0:00:49.799665s on worker abd39d1d128a4079b58dd6bd53829607
+21:16:11 xhsocr_tasks: Job OK (1a26425f-b51e-4701-887d-98ff02ff3f1d)
+21:16:11 Result is kept for 500 seconds
+21:16:11 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:16:11 xhsocr_tasks: app.services.task_processor.process_task(18162) (ce8cb5c8-389c-4e4d-ab15-e9bc1219d7f1)
+21:16:56 Successfully completed app.services.task_processor.process_task(18162) job in 0:00:45.644307s on worker abd39d1d128a4079b58dd6bd53829607
+21:16:56 xhsocr_tasks: Job OK (ce8cb5c8-389c-4e4d-ab15-e9bc1219d7f1)
+21:16:56 Result is kept for 500 seconds
+21:16:56 xhsocr_tasks: app.services.task_processor.process_task(18158) (9a82b072-2a6a-44c7-bdd7-64ca83f5b174)
+21:17:45 Successfully completed app.services.task_processor.process_task(18158) job in 0:00:48.401643s on worker abd39d1d128a4079b58dd6bd53829607
+21:17:45 xhsocr_tasks: Job OK (9a82b072-2a6a-44c7-bdd7-64ca83f5b174)
+21:17:45 Result is kept for 500 seconds
+21:17:45 xhsocr_tasks: app.services.task_processor.process_task(18154) (72ad78cd-3d94-45d2-b106-424dee9c3d1b)
+21:18:42 Successfully completed app.services.task_processor.process_task(18154) job in 0:00:56.823814s on worker abd39d1d128a4079b58dd6bd53829607
+21:18:42 xhsocr_tasks: Job OK (72ad78cd-3d94-45d2-b106-424dee9c3d1b)
+21:18:42 Result is kept for 500 seconds
+21:18:42 xhsocr_tasks: app.services.task_processor.process_task(18149) (571d182e-638b-4432-aa01-0ae97dc788fb)
+21:18:52 Worker abd39d1d128a4079b58dd6bd53829607: job 571d182e-638b-4432-aa01-0ae97dc788fb: exception raised while executing (app.services.task_processor.process_task)
+Traceback (most recent call last):
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/.venv/lib/python3.11/site-packages/rq/worker.py", line 1659, in perform_job
+    return_value = job.perform()
+                   ^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/.venv/lib/python3.11/site-packages/rq/job.py", line 1318, in perform
+    self._result = self._execute()
+                   ^^^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/.venv/lib/python3.11/site-packages/rq/job.py", line 1376, in _execute
+    result = self.func(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/app/services/task_processor.py", line 213, in process_task
+    created_text = _collapse_blank_lines(llm.chat(create_prompt).strip())
+                                         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/app/services/ai_writer.py", line 48, in chat
+    return self._openrouter(prompt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/app/services/ai_writer.py", line 60, in _openrouter
+    return self._post_chat_completion(url, settings.openrouter_api_key, payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/app/services/ai_writer.py", line 86, in _post_chat_completion
+    resp.raise_for_status()
+  File "/Users/yanshaohui/Documents/GitHub/xhsocr/backend/.venv/lib/python3.11/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+
+21:18:52 xhsocr_tasks: app.services.task_processor.process_task(18148) (527ed858-3d0c-4c06-b2bc-67a8a957c2ad)
+21:19:46 Successfully completed app.services.task_processor.process_task(18148) job in 0:00:53.532769s on worker abd39d1d128a4079b58dd6bd53829607
+21:19:46 xhsocr_tasks: Job OK (527ed858-3d0c-4c06-b2bc-67a8a957c2ad)
+21:19:46 Result is kept for 500 seconds
+21:19:46 xhsocr_tasks: app.services.task_processor.process_task(18143) (aca9138b-8961-4274-b8af-e9ccdf6e777c)
+21:20:42 Successfully completed app.services.task_processor.process_task(18143) job in 0:00:56.261096s on worker abd39d1d128a4079b58dd6bd53829607
+21:20:42 xhsocr_tasks: Job OK (aca9138b-8961-4274-b8af-e9ccdf6e777c)
+21:20:42 Result is kept for 500 seconds
+21:20:42 xhsocr_tasks: app.services.task_processor.process_task(18138) (717f257e-e643-4dde-b882-59eabaf651c3)
+21:21:30 Successfully completed app.services.task_processor.process_task(18138) job in 0:00:48.098589s on worker abd39d1d128a4079b58dd6bd53829607
+21:21:30 xhsocr_tasks: Job OK (717f257e-e643-4dde-b882-59eabaf651c3)
+21:21:30 Result is kept for 500 seconds
+21:21:30 xhsocr_tasks: app.services.task_processor.process_task(18132) (c650fca6-9fbf-412e-9157-acc2b11f818b)
+21:22:24 Successfully completed app.services.task_processor.process_task(18132) job in 0:00:53.997392s on worker abd39d1d128a4079b58dd6bd53829607
+21:22:24 xhsocr_tasks: Job OK (c650fca6-9fbf-412e-9157-acc2b11f818b)
+21:22:24 Result is kept for 500 seconds
+21:22:24 xhsocr_tasks: app.services.task_processor.process_task(18125) (f86cc4e4-ad2f-4116-ad10-17b8f5a76085)
+21:23:09 Successfully completed app.services.task_processor.process_task(18125) job in 0:00:44.777585s on worker abd39d1d128a4079b58dd6bd53829607
+21:23:09 xhsocr_tasks: Job OK (f86cc4e4-ad2f-4116-ad10-17b8f5a76085)
+21:23:09 Result is kept for 500 seconds
+21:23:09 xhsocr_tasks: app.services.task_processor.process_task(18120) (10ca7fe2-a995-4012-996a-3b7448887430)
+21:24:00 Successfully completed app.services.task_processor.process_task(18120) job in 0:00:51.390483s on worker abd39d1d128a4079b58dd6bd53829607
+21:24:00 xhsocr_tasks: Job OK (10ca7fe2-a995-4012-996a-3b7448887430)
+21:24:00 Result is kept for 500 seconds
+21:24:00 xhsocr_tasks: app.services.task_processor.process_task(18115) (d1593af2-a338-4ac4-bbe3-889b80d75921)
+21:24:55 Successfully completed app.services.task_processor.process_task(18115) job in 0:00:54.999183s on worker abd39d1d128a4079b58dd6bd53829607
+21:24:55 xhsocr_tasks: Job OK (d1593af2-a338-4ac4-bbe3-889b80d75921)
+21:24:55 Result is kept for 500 seconds
+21:24:55 xhsocr_tasks: app.services.task_processor.process_task(18105) (cd5fd047-6842-4f67-8617-edf03bc0e6e8)
+21:25:40 Successfully completed app.services.task_processor.process_task(18105) job in 0:00:44.419025s on worker abd39d1d128a4079b58dd6bd53829607
+21:25:40 xhsocr_tasks: Job OK (cd5fd047-6842-4f67-8617-edf03bc0e6e8)
+21:25:40 Result is kept for 500 seconds
+21:25:40 xhsocr_tasks: app.services.task_processor.process_task(18100) (e950576a-4530-4636-9c01-8c7c45bc6d5c)
+21:26:30 Successfully completed app.services.task_processor.process_task(18100) job in 0:00:50.195798s on worker abd39d1d128a4079b58dd6bd53829607
+21:26:30 xhsocr_tasks: Job OK (e950576a-4530-4636-9c01-8c7c45bc6d5c)
+21:26:30 Result is kept for 500 seconds
+21:26:30 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:26:30 xhsocr_tasks: app.services.task_processor.process_task(18095) (023450e9-790c-4af5-bd4d-bc830da6aef2)
+21:27:22 Successfully completed app.services.task_processor.process_task(18095) job in 0:00:51.845830s on worker abd39d1d128a4079b58dd6bd53829607
+21:27:22 xhsocr_tasks: Job OK (023450e9-790c-4af5-bd4d-bc830da6aef2)
+21:27:22 Result is kept for 500 seconds
+21:27:22 xhsocr_tasks: app.services.task_processor.process_task(18090) (6f2d7cdd-2753-4995-9040-659a320140da)
+21:28:29 Successfully completed app.services.task_processor.process_task(18090) job in 0:01:07.050548s on worker abd39d1d128a4079b58dd6bd53829607
+21:28:29 xhsocr_tasks: Job OK (6f2d7cdd-2753-4995-9040-659a320140da)
+21:28:29 Result is kept for 500 seconds
+21:28:29 xhsocr_tasks: app.services.task_processor.process_task(18084) (c8bc537f-76a5-418a-88ba-fa40d10631ee)
+21:29:20 Successfully completed app.services.task_processor.process_task(18084) job in 0:00:51.538631s on worker abd39d1d128a4079b58dd6bd53829607
+21:29:20 xhsocr_tasks: Job OK (c8bc537f-76a5-418a-88ba-fa40d10631ee)
+21:29:20 Result is kept for 500 seconds
+21:42:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:56:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:09:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:23:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:36:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:50:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:03:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:17:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:30:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:44:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:57:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:11:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:24:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:38:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:51:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:05:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:18:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:32:23 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:45:53 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:59:23 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:12:53 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:26:23 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:39:53 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:53:23 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:06:53 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:20:24 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:33:54 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:47:24 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:00:54 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:14:24 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:27:54 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:41:24 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:54:54 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:08:24 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:21:55 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:35:25 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:48:55 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:02:25 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:15:55 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:29:25 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:42:55 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:56:25 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:09:55 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:23:25 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:36:56 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:50:26 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:03:56 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:17:26 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:30:56 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:44:26 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:57:56 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:11:26 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:24:57 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:38:27 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:51:57 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:05:27 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:18:57 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:32:27 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:45:57 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:52:21 xhsocr_tasks: app.services.task_processor.process_task(18175) (7c7fc81b-97a9-4560-ae60-5ace7ea5b641)
+Building prefix dict from the default dictionary ...
+Dumping model to file cache /var/folders/zp/0vyxbb315kq23js74wmwb9y40000gn/T/jieba.cache
+Loading model cost 0.275 seconds.
+Prefix dict has been built successfully.
+10:53:36 Successfully completed app.services.task_processor.process_task(18175) job in 0:01:15.016223s on worker abd39d1d128a4079b58dd6bd53829607
+10:53:36 xhsocr_tasks: Job OK (7c7fc81b-97a9-4560-ae60-5ace7ea5b641)
+10:53:36 Result is kept for 500 seconds
+10:55:30 xhsocr_tasks: app.services.task_processor.process_task(18178) (d620a8cf-6b0b-43ba-8991-e31d7ae85e75)
+10:56:19 Successfully completed app.services.task_processor.process_task(18178) job in 0:00:49.001334s on worker abd39d1d128a4079b58dd6bd53829607
+10:56:19 xhsocr_tasks: Job OK (d620a8cf-6b0b-43ba-8991-e31d7ae85e75)
+10:56:19 Result is kept for 500 seconds
+10:56:19 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:01:00 xhsocr_tasks: app.services.task_processor.process_task(18179) (8331bdc3-829c-4462-93a6-db6c92cc564c)
+11:01:45 Successfully completed app.services.task_processor.process_task(18179) job in 0:00:44.547019s on worker abd39d1d128a4079b58dd6bd53829607
+11:01:45 xhsocr_tasks: Job OK (8331bdc3-829c-4462-93a6-db6c92cc564c)
+11:01:45 Result is kept for 500 seconds
+11:08:30 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:22:00 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:35:30 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:49:00 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:02:30 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:16:00 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:29:30 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:43:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:56:31 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:10:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:23:31 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:37:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:50:31 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:04:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:17:31 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:31:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:44:31 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:58:01 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:03:27 xhsocr_tasks: app.services.task_processor.process_task(18180) (904d4fd0-be85-49d4-bd2a-11807d270ff6)
+15:04:20 Successfully completed app.services.task_processor.process_task(18180) job in 0:00:53.708662s on worker abd39d1d128a4079b58dd6bd53829607
+15:04:20 xhsocr_tasks: Job OK (904d4fd0-be85-49d4-bd2a-11807d270ff6)
+15:04:20 Result is kept for 500 seconds
+15:04:20 xhsocr_tasks: app.services.task_processor.process_task(18188) (407ed229-a204-4fcf-af8b-5096bd04dfa1)
+15:05:20 Successfully completed app.services.task_processor.process_task(18188) job in 0:00:59.938695s on worker abd39d1d128a4079b58dd6bd53829607
+15:05:20 xhsocr_tasks: Job OK (407ed229-a204-4fcf-af8b-5096bd04dfa1)
+15:05:20 Result is kept for 500 seconds
+15:05:20 xhsocr_tasks: app.services.task_processor.process_task(18194) (ac8c1220-4f41-4f88-90ec-9b91727b85c0)
+15:06:09 Successfully completed app.services.task_processor.process_task(18194) job in 0:00:48.954166s on worker abd39d1d128a4079b58dd6bd53829607
+15:06:09 xhsocr_tasks: Job OK (ac8c1220-4f41-4f88-90ec-9b91727b85c0)
+15:06:09 Result is kept for 500 seconds
+15:06:09 xhsocr_tasks: app.services.task_processor.process_task(18197) (deb2764a-7a77-43fb-b588-750069717cc9)
+15:06:56 Successfully completed app.services.task_processor.process_task(18197) job in 0:00:46.372615s on worker abd39d1d128a4079b58dd6bd53829607
+15:06:56 xhsocr_tasks: Job OK (deb2764a-7a77-43fb-b588-750069717cc9)
+15:06:56 Result is kept for 500 seconds
+15:06:56 xhsocr_tasks: app.services.task_processor.process_task(18202) (130f1b09-e04c-487d-b2c4-dd0cdf0bda45)
+15:07:44 Successfully completed app.services.task_processor.process_task(18202) job in 0:00:48.349675s on worker abd39d1d128a4079b58dd6bd53829607
+15:07:44 xhsocr_tasks: Job OK (130f1b09-e04c-487d-b2c4-dd0cdf0bda45)
+15:07:44 Result is kept for 500 seconds
+15:07:44 xhsocr_tasks: app.services.task_processor.process_task(18207) (34538fae-4b48-4754-8593-b1862ebcf071)
+15:08:42 Successfully completed app.services.task_processor.process_task(18207) job in 0:00:57.754311s on worker abd39d1d128a4079b58dd6bd53829607
+15:08:42 xhsocr_tasks: Job OK (34538fae-4b48-4754-8593-b1862ebcf071)
+15:08:42 Result is kept for 500 seconds
+15:08:42 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:08:42 xhsocr_tasks: app.services.task_processor.process_task(18212) (ce82b173-33e5-4a8b-ae95-6e01b493e560)
+15:09:31 Successfully completed app.services.task_processor.process_task(18212) job in 0:00:49.016639s on worker abd39d1d128a4079b58dd6bd53829607
+15:09:31 xhsocr_tasks: Job OK (ce82b173-33e5-4a8b-ae95-6e01b493e560)
+15:09:31 Result is kept for 500 seconds
+15:09:31 xhsocr_tasks: app.services.task_processor.process_task(18217) (aa92497b-f124-4e63-bec2-dafd6d588a67)
+15:10:23 Successfully completed app.services.task_processor.process_task(18217) job in 0:00:51.885678s on worker abd39d1d128a4079b58dd6bd53829607
+15:10:23 xhsocr_tasks: Job OK (aa92497b-f124-4e63-bec2-dafd6d588a67)
+15:10:23 Result is kept for 500 seconds
+15:10:23 xhsocr_tasks: app.services.task_processor.process_task(18222) (6f03bbcf-9955-450d-b136-6aaf4cbb5fdf)
+15:11:15 Successfully completed app.services.task_processor.process_task(18222) job in 0:00:52.391149s on worker abd39d1d128a4079b58dd6bd53829607
+15:11:15 xhsocr_tasks: Job OK (6f03bbcf-9955-450d-b136-6aaf4cbb5fdf)
+15:11:15 Result is kept for 500 seconds
+15:11:15 xhsocr_tasks: app.services.task_processor.process_task(18227) (927a27be-9e47-423a-8925-2925f2fb5351)
+15:12:14 Successfully completed app.services.task_processor.process_task(18227) job in 0:00:59.048807s on worker abd39d1d128a4079b58dd6bd53829607
+15:12:14 xhsocr_tasks: Job OK (927a27be-9e47-423a-8925-2925f2fb5351)
+15:12:14 Result is kept for 500 seconds
+15:12:14 xhsocr_tasks: app.services.task_processor.process_task(18233) (c0f09869-69f0-41e6-873e-999af2cfe6e3)
+15:13:12 Successfully completed app.services.task_processor.process_task(18233) job in 0:00:57.817104s on worker abd39d1d128a4079b58dd6bd53829607
+15:13:12 xhsocr_tasks: Job OK (c0f09869-69f0-41e6-873e-999af2cfe6e3)
+15:13:12 Result is kept for 500 seconds
+15:13:12 xhsocr_tasks: app.services.task_processor.process_task(18239) (8bcbfcd7-c23b-43fb-aa86-6e56988897fc)
+15:13:56 Successfully completed app.services.task_processor.process_task(18239) job in 0:00:43.898998s on worker abd39d1d128a4079b58dd6bd53829607
+15:13:56 xhsocr_tasks: Job OK (8bcbfcd7-c23b-43fb-aa86-6e56988897fc)
+15:13:56 Result is kept for 500 seconds
+15:13:56 xhsocr_tasks: app.services.task_processor.process_task(18242) (52767fc0-4ff4-4ee1-b63d-be2d59599bc6)
+15:14:45 Successfully completed app.services.task_processor.process_task(18242) job in 0:00:48.995030s on worker abd39d1d128a4079b58dd6bd53829607
+15:14:45 xhsocr_tasks: Job OK (52767fc0-4ff4-4ee1-b63d-be2d59599bc6)
+15:14:45 Result is kept for 500 seconds
+15:14:45 xhsocr_tasks: app.services.task_processor.process_task(18247) (0c9446c4-50fe-4217-a55b-8103b0fb1a12)
+15:15:36 Successfully completed app.services.task_processor.process_task(18247) job in 0:00:50.661995s on worker abd39d1d128a4079b58dd6bd53829607
+15:15:36 xhsocr_tasks: Job OK (0c9446c4-50fe-4217-a55b-8103b0fb1a12)
+15:15:36 Result is kept for 500 seconds
+15:15:36 xhsocr_tasks: app.services.task_processor.process_task(18252) (f3a4f705-e7af-44df-8a9c-5c62c39dd8f7)
+15:16:26 Successfully completed app.services.task_processor.process_task(18252) job in 0:00:50.562139s on worker abd39d1d128a4079b58dd6bd53829607
+15:16:26 xhsocr_tasks: Job OK (f3a4f705-e7af-44df-8a9c-5c62c39dd8f7)
+15:16:26 Result is kept for 500 seconds
+15:16:26 xhsocr_tasks: app.services.task_processor.process_task(18259) (6b58f912-126f-4d60-9e70-5734b30c2dc1)
+15:17:20 Successfully completed app.services.task_processor.process_task(18259) job in 0:00:53.844876s on worker abd39d1d128a4079b58dd6bd53829607
+15:17:20 xhsocr_tasks: Job OK (6b58f912-126f-4d60-9e70-5734b30c2dc1)
+15:17:20 Result is kept for 500 seconds
+15:17:20 xhsocr_tasks: app.services.task_processor.process_task(18264) (49cb4db0-81d6-46e1-b964-d2811d936763)
+15:18:17 Successfully completed app.services.task_processor.process_task(18264) job in 0:00:56.742456s on worker abd39d1d128a4079b58dd6bd53829607
+15:18:17 xhsocr_tasks: Job OK (49cb4db0-81d6-46e1-b964-d2811d936763)
+15:18:17 Result is kept for 500 seconds
+15:18:17 xhsocr_tasks: app.services.task_processor.process_task(18269) (1dd4f7b7-24c5-4a98-aa6e-8f4128578538)
+15:19:09 Successfully completed app.services.task_processor.process_task(18269) job in 0:00:51.768414s on worker abd39d1d128a4079b58dd6bd53829607
+15:19:09 xhsocr_tasks: Job OK (1dd4f7b7-24c5-4a98-aa6e-8f4128578538)
+15:19:09 Result is kept for 500 seconds
+15:19:09 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:19:09 xhsocr_tasks: app.services.task_processor.process_task(18273) (79afb05b-9525-4523-9e79-1b42256243c2)
+15:20:15 Successfully completed app.services.task_processor.process_task(18273) job in 0:01:06.062436s on worker abd39d1d128a4079b58dd6bd53829607
+15:20:15 xhsocr_tasks: Job OK (79afb05b-9525-4523-9e79-1b42256243c2)
+15:20:15 Result is kept for 500 seconds
+15:20:15 xhsocr_tasks: app.services.task_processor.process_task(18279) (e3209fc2-3836-48d2-97df-efec6f28b3e1)
+15:21:10 Successfully completed app.services.task_processor.process_task(18279) job in 0:00:55.760809s on worker abd39d1d128a4079b58dd6bd53829607
+15:21:10 xhsocr_tasks: Job OK (e3209fc2-3836-48d2-97df-efec6f28b3e1)
+15:21:10 Result is kept for 500 seconds
+15:21:10 xhsocr_tasks: app.services.task_processor.process_task(18285) (8f845842-fdf7-4995-b059-4da59bf5dcc9)
+15:22:06 Successfully completed app.services.task_processor.process_task(18285) job in 0:00:55.856218s on worker abd39d1d128a4079b58dd6bd53829607
+15:22:06 xhsocr_tasks: Job OK (8f845842-fdf7-4995-b059-4da59bf5dcc9)
+15:22:06 Result is kept for 500 seconds
+15:22:06 xhsocr_tasks: app.services.task_processor.process_task(18290) (4f5f1e72-8e39-41ce-bdfa-52f29b75edfd)
+15:22:57 Successfully completed app.services.task_processor.process_task(18290) job in 0:00:50.927646s on worker abd39d1d128a4079b58dd6bd53829607
+15:22:57 xhsocr_tasks: Job OK (4f5f1e72-8e39-41ce-bdfa-52f29b75edfd)
+15:22:57 Result is kept for 500 seconds
+15:22:57 xhsocr_tasks: app.services.task_processor.process_task(18295) (8c864312-5c88-471a-a858-9d51bf305242)
+15:23:51 Successfully completed app.services.task_processor.process_task(18295) job in 0:00:53.920392s on worker abd39d1d128a4079b58dd6bd53829607
+15:23:51 xhsocr_tasks: Job OK (8c864312-5c88-471a-a858-9d51bf305242)
+15:23:51 Result is kept for 500 seconds
+15:23:51 xhsocr_tasks: app.services.task_processor.process_task(18300) (a881121b-3f1d-43cb-89ee-006692778271)
+15:24:34 Successfully completed app.services.task_processor.process_task(18300) job in 0:00:42.953880s on worker abd39d1d128a4079b58dd6bd53829607
+15:24:34 xhsocr_tasks: Job OK (a881121b-3f1d-43cb-89ee-006692778271)
+15:24:34 Result is kept for 500 seconds
+15:24:34 xhsocr_tasks: app.services.task_processor.process_task(18305) (0ad1e2ae-4e58-4499-87a1-33a7fda49694)
+15:25:20 Successfully completed app.services.task_processor.process_task(18305) job in 0:00:45.818074s on worker abd39d1d128a4079b58dd6bd53829607
+15:25:20 xhsocr_tasks: Job OK (0ad1e2ae-4e58-4499-87a1-33a7fda49694)
+15:25:20 Result is kept for 500 seconds
+15:25:20 xhsocr_tasks: app.services.task_processor.process_task(18310) (13eace30-a613-4dca-bda2-2563e74a0938)
+15:26:13 Successfully completed app.services.task_processor.process_task(18310) job in 0:00:52.713018s on worker abd39d1d128a4079b58dd6bd53829607
+15:26:13 xhsocr_tasks: Job OK (13eace30-a613-4dca-bda2-2563e74a0938)
+15:26:13 Result is kept for 500 seconds
+15:26:13 xhsocr_tasks: app.services.task_processor.process_task(18315) (d4589426-98e0-45f7-8e9f-3f3e9ca69d69)
+15:27:08 Successfully completed app.services.task_processor.process_task(18315) job in 0:00:55.197939s on worker abd39d1d128a4079b58dd6bd53829607
+15:27:08 xhsocr_tasks: Job OK (d4589426-98e0-45f7-8e9f-3f3e9ca69d69)
+15:27:08 Result is kept for 500 seconds
+15:27:08 xhsocr_tasks: app.services.task_processor.process_task(18320) (335e8b49-e94d-42dc-950b-cd13db7a00c4)
+15:27:58 Successfully completed app.services.task_processor.process_task(18320) job in 0:00:50.115194s on worker abd39d1d128a4079b58dd6bd53829607
+15:27:58 xhsocr_tasks: Job OK (335e8b49-e94d-42dc-950b-cd13db7a00c4)
+15:27:58 Result is kept for 500 seconds
+15:27:58 xhsocr_tasks: app.services.task_processor.process_task(18325) (60b7655e-593b-49b8-baca-f7526949b76d)
+15:28:50 Successfully completed app.services.task_processor.process_task(18325) job in 0:00:52.042894s on worker abd39d1d128a4079b58dd6bd53829607
+15:28:50 xhsocr_tasks: Job OK (60b7655e-593b-49b8-baca-f7526949b76d)
+15:28:50 Result is kept for 500 seconds
+15:28:50 xhsocr_tasks: app.services.task_processor.process_task(18330) (6f7f33b4-10f1-4200-b79d-1384ae424062)
+15:29:41 Successfully completed app.services.task_processor.process_task(18330) job in 0:00:51.385391s on worker abd39d1d128a4079b58dd6bd53829607
+15:29:41 xhsocr_tasks: Job OK (6f7f33b4-10f1-4200-b79d-1384ae424062)
+15:29:41 Result is kept for 500 seconds
+15:29:41 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:29:41 xhsocr_tasks: app.services.task_processor.process_task(18335) (269247b1-da3a-464d-84a5-1d043227c25b)
+15:30:32 Successfully completed app.services.task_processor.process_task(18335) job in 0:00:50.705398s on worker abd39d1d128a4079b58dd6bd53829607
+15:30:32 xhsocr_tasks: Job OK (269247b1-da3a-464d-84a5-1d043227c25b)
+15:30:32 Result is kept for 500 seconds
+15:30:32 xhsocr_tasks: app.services.task_processor.process_task(18339) (3e3ea79b-27f0-4866-94e1-c016468937ee)
+15:31:31 Successfully completed app.services.task_processor.process_task(18339) job in 0:00:59.027699s on worker abd39d1d128a4079b58dd6bd53829607
+15:31:31 xhsocr_tasks: Job OK (3e3ea79b-27f0-4866-94e1-c016468937ee)
+15:31:31 Result is kept for 500 seconds
+15:31:31 xhsocr_tasks: app.services.task_processor.process_task(18345) (5e334fa1-e5a3-4f46-9a2b-7df3cc5823fb)
+15:32:27 Successfully completed app.services.task_processor.process_task(18345) job in 0:00:55.996765s on worker abd39d1d128a4079b58dd6bd53829607
+15:32:27 xhsocr_tasks: Job OK (5e334fa1-e5a3-4f46-9a2b-7df3cc5823fb)
+15:32:27 Result is kept for 500 seconds
+15:32:27 xhsocr_tasks: app.services.task_processor.process_task(18351) (1a2d6f74-b432-4359-84bf-561a61815ffb)
+15:33:20 Successfully completed app.services.task_processor.process_task(18351) job in 0:00:52.457279s on worker abd39d1d128a4079b58dd6bd53829607
+15:33:20 xhsocr_tasks: Job OK (1a2d6f74-b432-4359-84bf-561a61815ffb)
+15:33:20 Result is kept for 500 seconds
+15:33:20 xhsocr_tasks: app.services.task_processor.process_task(18355) (bad47805-78ed-4c42-a09e-6040c53c3a96)
+15:34:25 Successfully completed app.services.task_processor.process_task(18355) job in 0:01:05.185567s on worker abd39d1d128a4079b58dd6bd53829607
+15:34:25 xhsocr_tasks: Job OK (bad47805-78ed-4c42-a09e-6040c53c3a96)
+15:34:25 Result is kept for 500 seconds
+15:41:10 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:54:40 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+16:08:10 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+16:21:40 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+16:35:10 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+16:48:40 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+17:02:10 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+17:15:41 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+17:29:11 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+17:42:41 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+17:56:11 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+18:09:41 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+18:23:11 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+18:36:41 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+18:50:12 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+19:03:42 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+19:17:12 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+19:30:42 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+19:44:12 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+19:57:42 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+20:11:12 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+20:24:43 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+20:38:13 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+20:51:43 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:05:13 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:18:43 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:32:13 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:45:44 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+21:59:14 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:12:44 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:26:14 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:39:44 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+22:53:14 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:06:44 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:20:14 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:33:44 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+23:47:14 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:00:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:14:15 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:27:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:41:15 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+00:54:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:08:15 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:21:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:35:15 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+01:48:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:02:15 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:15:45 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:29:16 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:42:46 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+02:56:16 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:09:46 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:23:16 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:36:46 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+03:50:16 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:03:47 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:17:17 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:30:47 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:44:17 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+04:57:47 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:11:17 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:24:47 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:38:17 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+05:51:47 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:05:17 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:18:48 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:32:18 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:45:48 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+06:59:18 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:12:48 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:26:18 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:39:48 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+07:53:18 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:06:49 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:20:19 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:33:49 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+08:47:19 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:00:49 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:14:19 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:27:49 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:41:19 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+09:54:49 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:08:20 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:21:50 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:35:20 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+10:48:50 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:02:20 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:15:50 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:29:20 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:42:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+11:56:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:09:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:23:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:36:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+12:50:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:03:51 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:17:21 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:30:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:44:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+13:57:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:11:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:24:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:38:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+14:51:52 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:05:22 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:18:53 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks
+15:32:23 Worker abd39d1d128a4079b58dd6bd53829607: cleaning registries for queue: xhsocr_tasks

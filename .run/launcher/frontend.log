@@ -1,0 +1,88 @@
+ ⚠ Warning: Found multiple lockfiles. Selecting /Users/yanshaohui/package-lock.json.
+   Consider removing the lockfiles at:
+   * /Users/yanshaohui/Documents/GitHub/xhsocr/frontend/package-lock.json
+
+   ▲ Next.js 15.4.6
+   - Local:        http://localhost:3000
+   - Network:      http://0.0.0.0:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ⚠ Attempted to load /Users/yanshaohui/Documents/GitHub/xhsocr/frontend/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed
+ ⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed
+ ✓ Ready in 12.6s
+ ○ Compiling / ...
+ ✓ Compiled / in 561ms (583 modules)
+ GET / 307 in 768ms
+ ✓ Compiled /tasks in 223ms (596 modules)
+ GET /tasks 200 in 313ms
+ ✓ Compiled /create-tasks in 208ms (603 modules)
+ GET /create-tasks 200 in 265ms
+ GET /tasks 200 in 33ms
+ GET /create-tasks 200 in 22ms
+ ✓ Compiled /create-tasks/[id] in 157ms (612 modules)
+ GET /create-tasks/18174 200 in 553ms
+ GET /create-tasks 200 in 36ms
+ ✓ Compiled /batches in 183ms (619 modules)
+ GET /batches 200 in 223ms
+ GET /create-tasks 200 in 34ms
+ GET /batches 200 in 11ms
+ GET /batches 200 in 6ms
+ GET /batches 200 in 157ms
+ GET /batches 200 in 56ms
+ ⚠ Cross origin request detected from 192.168.1.9 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ ✓ Compiled /featured-notes in 420ms (614 modules)
+ GET /featured-notes 200 in 522ms
+ GET /batches 200 in 42ms
+ GET /featured-notes 200 in 58ms
+ GET /batches 200 in 121ms
+ GET /batches 200 in 5ms
+ GET /featured-notes 200 in 32ms
+ GET /batches 200 in 29ms
+ GET /featured-notes 200 in 32ms
+ GET /batches 200 in 123ms
+ GET /create-tasks 200 in 166ms
+ ✓ Compiled /framework-tasks in 376ms (621 modules)
+ GET /framework-tasks 200 in 448ms
+ GET /framework-tasks 200 in 5ms
+ ✓ Compiled /framework-tasks/[id] in 258ms (623 modules)
+ GET /framework-tasks/18176 200 in 693ms
+ ✓ Compiled /framework-tasks in 113ms (390 modules)
+ GET /framework-tasks 200 in 159ms
+ GET /create-tasks 200 in 33ms
+ GET /framework-tasks 200 in 17ms
+ GET /batches 200 in 37ms
+ GET /create-tasks 200 in 30ms
+ GET /framework-tasks 200 in 32ms
+ GET /create-tasks 200 in 10ms
+ GET /batches 200 in 25ms
+ GET /create-tasks/18178?batch_id=1480&task_page=1 200 in 14ms
+ GET /create-tasks 200 in 28ms
+ GET /batches 200 in 23ms
+ GET /create-tasks/18178?batch_id=1480&task_page=1 200 in 29ms
+ GET /create-tasks/18177?batch_id=1480 200 in 8ms
+ GET /create-tasks/18179?batch_id=1480 200 in 6ms
+ GET /create-tasks 200 in 25ms
+ GET /tasks 200 in 36ms
+ GET /create-tasks 200 in 20ms
+ GET /create-tasks/18179?batch_id=1480 200 in 19ms
+ GET /batches 200 in 20ms
+ GET /create-tasks/18179?batch_id=1480&task_page=1 200 in 29ms
+ GET /create-tasks 200 in 25ms
+ GET /batches 200 in 28ms
+ GET /featured-notes 200 in 48ms
+ GET /batches 200 in 29ms
+ GET /batches 200 in 141ms
+ GET /featured-notes 200 in 40ms
+ GET /batches 200 in 19ms
+ GET /create-tasks 200 in 132ms
+ GET /batches 200 in 42ms
+ GET /featured-notes 200 in 30ms
+ GET /batches 200 in 34ms
+ GET /batches 200 in 97ms
+ GET /batches 200 in 110ms
+ ✓ Compiled / in 454ms (392 modules)
+ GET / 307 in 654ms
+ GET / 307 in 33ms
+ GET /tasks 200 in 46ms

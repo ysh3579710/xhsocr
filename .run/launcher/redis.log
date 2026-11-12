@@ -1,0 +1,10 @@
+8683:C 10 Nov 2026 20:51:59.008 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+8683:C 10 Nov 2026 20:51:59.009 * Redis version=8.6.1, bits=64, commit=00000000, modified=1, pid=8683, just started
+8683:C 10 Nov 2026 20:51:59.009 * Configuration loaded
+8683:M 10 Nov 2026 20:51:59.009 * Increased maximum number of open files to 10032 (it was originally set to 256).
+8683:M 10 Nov 2026 20:51:59.009 * monotonic clock: ARM CNTVCT @ 1000 ticks/us
+8683:M 10 Nov 2026 20:51:59.010 * Running mode=standalone, port=6380.
+8683:M 10 Nov 2026 20:51:59.010 # WARNING: The TCP backlog setting of 511 cannot be enforced because kern.ipc.somaxconn is set to the lower value of 128.
+8683:M 10 Nov 2026 20:51:59.010 * Server initialized
+8683:M 10 Nov 2026 20:51:59.010 * Ready to accept connections tcp
+8683:M 10 Nov 2026 20:51:59.010 # WARNING: Redis does not require authentication. Redis will accept connections from any local client.
